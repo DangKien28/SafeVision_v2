@@ -1,0 +1,20 @@
+{
+  "person": { "vi": "người", "group": "recognition" },
+  "nguoi_di_bo": { "vi": "người đi bộ", "group": "recognition" },
+  "car": { "vi": "ô tô", "group": "warning" },
+  "xe": { "vi": "ô tô", "group": "warning" },
+  "door": { "vi": "cửa ra vào", "group": "instruction" },
+  "cua": { "vi": "cửa ra vào", "group": "instruction" },
+  "cau_thang": { "vi": "cầu thang", "group": "warning" },
+  "stairs": { "vi": "cầu thang", "group": "warning" },
+  "ho": { "vi": "hố", "group": "warning" },
+  "hole": { "vi": "hố", "group": "warning" },
+  "lua": { "vi": "lửa", "group": "warning" },
+  "fire": { "vi": "lửa", "group": "warning" },
+  "ban": { "vi": "bàn", "group": "recognition" },
+  "ghe": { "vi": "ghế", "group": "recognition" },
+  "cay": { "vi": "cây", "group": "recognition" },
+  "balo": { "vi": "ba lô", "group": "recognition" },
+  "dien_thoai": { "vi": "điện thoại", "group": "recognition" },
+  "laptop": { "vi": "laptop", "group": "recognition" }
+}
