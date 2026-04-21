@@ -31,7 +31,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
        _speechRepository = speechRepository,
        super(SafeVisionState.initial()) {
     on<SafeVisionStarted>(_onStarted);
-    on<CameraFrameReceived>(_onFrameReceived);
+     on<CameraFrameReceived>(_onFrameReceived);
     on<SafeVisionModeChanged>(_onModeChanged);
     on<SafeVisionModeSwiped>(_onModeSwiped);
     on<CameraLensToggled>(_onCameraLensToggled);

@@ -11,3 +11,15 @@ vi
 lua
 laptop
 dien_thoai
+den_giao_thong
+mep_duong
+thung_rac
+1k
+2k
+5k
+10k
+20k
+50k
+100k
+200k
+500k

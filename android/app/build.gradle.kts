@@ -10,6 +10,10 @@ android {
     compileSdk = 36
     ndkVersion = "27.1.12297006"
 
+    androidResources {
+        noCompress += "tflite"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

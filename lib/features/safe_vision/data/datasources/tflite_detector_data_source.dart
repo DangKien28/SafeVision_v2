@@ -87,10 +87,61 @@ class TfliteDetectorDataSource {
     return _parseDetections(outputs.values.first, inputWidth, inputHeight);
   }
 
+  Future<List<Detection>> detectInRoi(CameraImage cameraImage, Rect roi) async {
+    if (_interpreter == null) {
+      return const [];
+    }
+
+    final normalized = Rect.fromLTRB(
+      roi.left.clamp(0.0, 1.0),
+      roi.top.clamp(0.0, 1.0),
+      roi.right.clamp(0.0, 1.0),
+      roi.bottom.clamp(0.0, 1.0),
+    );
+    if (normalized.width <= 0 || normalized.height <= 0) {
+      return const [];
+    }
+
+    final inputWidth = _inputShape[2];
+    final inputHeight = _inputShape[1];
+
+    final input = await _buildModelInputInBackground(
+      cameraImage,
+      inputWidth,
+      inputHeight,
+      roiNormalized: normalized,
+    );
+
+    final outputs = <int, Object>{};
+    for (var i = 0; i < _outputShapes.length; i++) {
+      outputs[i] = _createTensorBuffer(_outputShapes[i], TensorType.float32);
+    }
+
+    _interpreter!.runForMultipleInputs([input], outputs);
+    final local = _parseDetections(outputs.values.first, inputWidth, inputHeight);
+    if (local.isEmpty) {
+      return const [];
+    }
+
+    return local
+        .map(
+          (d) => Detection(
+            label: d.label,
+            score: d.score,
+            left: normalized.left + d.left * normalized.width,
+            top: normalized.top + d.top * normalized.height,
+            right: normalized.left + d.right * normalized.width,
+            bottom: normalized.top + d.bottom * normalized.height,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<dynamic> _buildModelInputInBackground(
     CameraImage image,
     int inputWidth,
     int inputHeight,
+    {Rect? roiNormalized}
   ) {
     final yPlane = image.planes[0];
     final uPlane = image.planes[1];
@@ -108,6 +159,10 @@ class TfliteDetectorDataSource {
       'yBytesPerRow': yPlane.bytesPerRow,
       'uBytesPerRow': uPlane.bytesPerRow,
       'uBytesPerPixel': uPlane.bytesPerPixel ?? 1,
+      'roiLeft': roiNormalized?.left ?? 0.0,
+      'roiTop': roiNormalized?.top ?? 0.0,
+      'roiRight': roiNormalized?.right ?? 1.0,
+      'roiBottom': roiNormalized?.bottom ?? 1.0,
     };
 
     return compute(_buildModelInputFromYuv, payload);
@@ -310,6 +365,10 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final yBytesPerRow = payload['yBytesPerRow'] as int;
   final uBytesPerRow = payload['uBytesPerRow'] as int;
   final uBytesPerPixel = payload['uBytesPerPixel'] as int;
+  final roiLeft = payload['roiLeft'] as double;
+  final roiTop = payload['roiTop'] as double;
+  final roiRight = payload['roiRight'] as double;
+  final roiBottom = payload['roiBottom'] as double;
 
   final rgbImage = img.Image(width: width, height: height);
 
@@ -333,11 +392,19 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
     }
   }
 
-  final resized = img.copyResize(
+  final cropX = (roiLeft * width).floor().clamp(0, width - 1);
+  final cropY = (roiTop * height).floor().clamp(0, height - 1);
+  final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
+  final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
+
+  final cropped = img.copyCrop(
     rgbImage,
-    width: inputWidth,
-    height: inputHeight,
+    x: cropX,
+    y: cropY,
+    width: cropW,
+    height: cropH,
   );
+  final resized = img.copyResize(cropped, width: inputWidth, height: inputHeight);
 
   if (isUint8Input) {
     return List.generate(

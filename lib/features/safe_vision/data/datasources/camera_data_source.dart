@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart' show DeviceOrientation;
 
 class CameraDataSource {
   CameraController? _controller;
@@ -7,6 +8,9 @@ class CameraDataSource {
 
   CameraController? get controller => _controller;
   CameraLensDirection get currentLensDirection => _currentLensDirection;
+  int get sensorOrientation => _controller?.description.sensorOrientation ?? 0;
+  DeviceOrientation get deviceOrientation =>
+      _controller?.value.deviceOrientation ?? DeviceOrientation.portraitUp;
 
   Future<CameraController> initializeCamera({
     CameraLensDirection lensDirection = CameraLensDirection.back,

@@ -1,0 +1,31 @@
+path: /kaggle/input/datasets/thekingge/training-safevision/SafeVision_Dataset_v3/SafeVision_Dataset_v3
+train: train/images
+val: validation/images
+test: test/images
+nc: 25
+names:
+  0: ban
+  1: cau_thang
+  2: cay
+  3: ghe
+  4: nguoi_di_bo
+  5: xe
+  6: cua
+  7: ho
+  8: balo
+  9: vi
+  10: lua
+  11: laptop
+  12: dien_thoai
+  13: den_giao_thong
+  14: mep_duong
+  15: thung_rac
+  16: 1k
+  17: 2k
+  18: 5k
+  19: 10k
+  20: 20k
+  21: 50k
+  22: 100k
+  23: 200k
+  24: 500k
