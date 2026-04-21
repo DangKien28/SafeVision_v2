@@ -15,7 +15,7 @@ import 'safe_vision_event.dart';
 import 'safe_vision_state.dart';
 
 class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
-  static const int _frameThrottleMs = 66;
+  static const int _frameThrottleMs = 33;
   static const int _ttsCooldownMs = 1200;
 
   SafeVisionBloc({
