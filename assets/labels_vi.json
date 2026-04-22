@@ -16,5 +16,17 @@
   "cay": { "vi": "cây", "group": "recognition" },
   "balo": { "vi": "ba lô", "group": "recognition" },
   "dien_thoai": { "vi": "điện thoại", "group": "recognition" },
-  "laptop": { "vi": "laptop", "group": "recognition" }
+  "laptop": { "vi": "laptop", "group": "recognition" },
+  "den_giao_thong": { "vi": "đèn giao thông", "group": "recognition" },
+  "mep_duong": { "vi": "mép đường", "group": "recognition" },
+  "thung_rac": { "vi": "thùng rác", "group": "recognition" },
+  "1k": { "vi": "một nghìn", "group": "recognition" },
+  "2k": { "vi": "hai nghìn", "group": "recognition" },
+  "5k": { "vi": "năm nghìn", "group": "recognition" },
+  "10k": { "vi": "mười nghìn", "group": "recognition" },
+  "20k": { "vi": "hai mươi nghìn", "group": "recognition" },
+  "50k": { "vi": "năm mươi nghìn", "group": "recognition" },
+  "100k": { "vi": "một trăm nghìn", "group": "recognition" },
+  "200k": { "vi": "hai trăm nghìn", "group": "recognition" },
+  "500k": { "vi": "năm trăm nghìn", "group": "recognition" }
 }

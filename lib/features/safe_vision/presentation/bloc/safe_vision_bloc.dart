@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -94,6 +95,15 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   ) async {
     try {
       final detections = await _detectObjectsUseCase(event.image);
+      debugPrint(
+        'SafeVision frame detections=${detections.length} mode=${state.mode.name}',
+      );
+      if (detections.isNotEmpty) {
+        final top = detections.first;
+        debugPrint(
+          'SafeVision top=${top.label} score=${top.score.toStringAsFixed(2)} box=${top.left.toStringAsFixed(2)},${top.top.toStringAsFixed(2)},${top.right.toStringAsFixed(2)},${top.bottom.toStringAsFixed(2)}',
+        );
+      }
       final status = _buildStatusText(state.mode, detections);
 
       emit(
@@ -105,8 +115,15 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       );
 
       await _speakRiskAlert(state.mode, detections);
-    } catch (_) {
-      // Keep stream alive when malformed frame appears.
+    } catch (e, st) {
+      debugPrint('SafeVision frame error: $e');
+      debugPrint('$st');
+      emit(
+        state.copyWith(
+          statusText: 'Lỗi xử lý khung hình: $e',
+          errorMessage: e.toString(),
+        ),
+      );
     } finally {
       _isProcessingFrame = false;
     }

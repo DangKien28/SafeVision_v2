@@ -1,6 +1,8 @@
 import 'package:camera/camera.dart';
 import 'dart:math';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show DeviceOrientation;
 
 import '../../domain/entities/detection.dart';
 import '../../domain/repositories/vision_repository.dart';
@@ -68,6 +70,7 @@ class VisionRepositoryImpl implements VisionRepository {
       sensorOrientation: _cameraDataSource.sensorOrientation,
       deviceOrientation: _cameraDataSource.deviceOrientation,
     );
+    debugPrint('VisionRepository tracked=${tracked.length} frame=$_frameCounter');
 
     final needRoiRefresh =
         _lastPersonRois.isEmpty || _frameCounter % _roiRefreshFrames == 0;
@@ -78,6 +81,7 @@ class VisionRepositoryImpl implements VisionRepository {
         sensorOrientation: _cameraDataSource.sensorOrientation,
         deviceOrientation: _cameraDataSource.deviceOrientation,
       );
+      debugPrint('VisionRepository rois=${_lastPersonRois.length} frame=$_frameCounter');
     }
 
     final shouldRunYolo =
@@ -85,9 +89,11 @@ class VisionRepositoryImpl implements VisionRepository {
     if (shouldRunYolo) {
       _lastYoloDetections = await _runYoloWithRoi(image);
       _refreshTrackLabelCache(tracked, _lastYoloDetections);
+      debugPrint('VisionRepository yolo=${_lastYoloDetections.length} frame=$_frameCounter');
     }
 
     final fused = _fuseTrackedWithLabels(tracked, _lastYoloDetections);
+    debugPrint('VisionRepository fused=${fused.length} frame=$_frameCounter');
     if (fused.isNotEmpty) {
       return fused;
     }
@@ -95,21 +101,31 @@ class VisionRepositoryImpl implements VisionRepository {
   }
 
   Future<List<Detection>> _runYoloWithRoi(CameraImage image) async {
-    if (_lastPersonRois.isEmpty) {
-      return _detectorDataSource.detect(image);
-    }
+    final rotationDegrees = _resolveYoloRotationDegrees();
 
-    final roiDetections = <Detection>[];
-    for (final roi in _lastPersonRois.take(3)) {
-      final expanded = _expandRect(roi, factor: 1.2);
-      final detected = await _detectorDataSource.detectInRoi(image, expanded);
-      roiDetections.addAll(detected);
-    }
+    // Tạm thời luôn detect toàn frame thay vì dùng ROI logic
+    return _detectorDataSource.detect(
+      image,
+      rotationDegrees: rotationDegrees,
+    );
+  }
 
-    if (roiDetections.isEmpty) {
-      return _detectorDataSource.detect(image);
+  int _resolveYoloRotationDegrees() {
+    const orientationToDegrees = <DeviceOrientation, int>{
+      DeviceOrientation.portraitUp: 0,
+      DeviceOrientation.landscapeLeft: 90,
+      DeviceOrientation.portraitDown: 180,
+      DeviceOrientation.landscapeRight: 270,
+    };
+
+    final orientation =
+        orientationToDegrees[_cameraDataSource.deviceOrientation] ?? 0;
+    final sensorOrientation = _cameraDataSource.sensorOrientation;
+
+    if (_cameraDataSource.currentLensDirection == CameraLensDirection.front) {
+      return (sensorOrientation + orientation) % 360;
     }
-    return _nonMaxSuppression(roiDetections, iouThreshold: 0.45);
+    return (sensorOrientation - orientation + 360) % 360;
   }
 
   void _refreshTrackLabelCache(
@@ -177,7 +193,7 @@ class VisionRepositoryImpl implements VisionRepository {
         best = detection;
       }
     }
-    if (bestIou < 0.1) {
+    if (bestIou < 0.05) {
       return null;
     }
     return best;

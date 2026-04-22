@@ -51,29 +51,35 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
                         child: SizedBox(
                           width: viewportWidth,
                           height: viewportHeight,
-                          child: RepaintBoundary(
-                            child: CameraPreview(controller),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: RepaintBoundary(
+                                  child: CameraPreview(controller),
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
+                                    buildWhen: (previous, current) =>
+                                        previous.detections != current.detections,
+                                    builder: (context, state) {
+                                      return RepaintBoundary(
+                                        child: CustomPaint(
+                                          painter: DetectionPainter(state.detections),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       );
                     },
                   );
                 },
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  buildWhen: (previous, current) =>
-                      previous.detections != current.detections,
-                  builder: (context, state) {
-                    return RepaintBoundary(
-                      child: CustomPaint(
-                        painter: DetectionPainter(state.detections),
-                      ),
-                    );
-                  },
-                ),
               ),
             ),
             Positioned(
