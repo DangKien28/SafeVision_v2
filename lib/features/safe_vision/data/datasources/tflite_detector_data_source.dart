@@ -262,6 +262,8 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
   List<TensorType> outputTypes = const [];
   List<double> outputScales = const [];
   List<int> outputZeroPoints = const [];
+  double inputScale = 1.0;
+  int inputZeroPoint = 0;
   final outputBuffers = <int, Object>{};
 
   try {
@@ -275,6 +277,12 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
     interpreter = initializedInterpreter;
     inputType = initializedInterpreter.getInputTensor(0).type;
     inputShape = initializedInterpreter.getInputTensor(0).shape;
+    final inputParams = initializedInterpreter.getInputTensor(0).params;
+    if (inputParams.scale != 0) {
+      inputScale = inputParams.scale;
+      inputZeroPoint = inputParams.zeroPoint;
+    }
+
     final outputTensors = initializedInterpreter.getOutputTensors();
     outputShapes = List.generate(
       outputTensors.length,
@@ -356,7 +364,9 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
           'height': height,
           'inputWidth': inputShape[2],
           'inputHeight': inputShape[1],
-          'isUint8Input': inputType == TensorType.uint8,
+          'inputType': inputType,
+          'inputScale': inputScale,
+          'inputZeroPoint': inputZeroPoint,
           'yBytes': yBytes,
           'uBytes': uBytes,
           'vBytes': vBytes,
@@ -473,7 +483,7 @@ List<Detection> _parseDetectionsFromBuffer({
   final b = outputShape[2];
   final detections = <Detection>[];
 
-  var threshold = 0.20;
+  var threshold = 0.40;
 
   Detection? topCandidate;
   var topCandidateScore = -1.0;
@@ -958,10 +968,10 @@ Detection _toDetectionWorker({
   final scaleW = max(x.abs(), w.abs()) > 2.0 ? inW.toDouble() : 1.0;
   final scaleH = max(y.abs(), h.abs()) > 2.0 ? inH.toDouble() : 1.0;
 
-  final cx = x / scaleW;
-  final cy = y / scaleH;
-  final bw = w / scaleW;
-  final bh = h / scaleH;
+  final left = x / scaleW;
+  final top = y / scaleH;
+  final right = w / scaleW;
+  final bottom = h / scaleH;
 
   final label = classIndex >= 0 && classIndex < labels.length
       ? labels[classIndex]
@@ -970,10 +980,10 @@ Detection _toDetectionWorker({
   final normalized = Detection(
     label: label,
     score: score,
-    left: (cx - bw / 2).clamp(0.0, 1.0),
-    top: (cy - bh / 2).clamp(0.0, 1.0),
-    right: (cx + bw / 2).clamp(0.0, 1.0),
-    bottom: (cy + bh / 2).clamp(0.0, 1.0),
+    left: left.clamp(0.0, 1.0),
+    top: top.clamp(0.0, 1.0),
+    right: right.clamp(0.0, 1.0),
+    bottom: bottom.clamp(0.0, 1.0),
   );
 
   return _mapDetectionBackFromRotated(
@@ -1062,7 +1072,9 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final height = payload['height'] as int;
   final inputWidth = payload['inputWidth'] as int;
   final inputHeight = payload['inputHeight'] as int;
-  final isUint8Input = payload['isUint8Input'] as bool;
+  final inputType = payload['inputType'] as TensorType;
+  final inputScale = payload['inputScale'] as double;
+  final inputZeroPoint = payload['inputZeroPoint'] as int;
 
   final yBytes = payload['yBytes'] as Uint8List;
   final uBytes = payload['uBytes'] as Uint8List;
@@ -1081,7 +1093,7 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
   final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
 
-  if (isUint8Input) {
+  if (inputType == TensorType.uint8 || inputType == TensorType.int8) {
     return List.generate(
       1,
       (_) => List.generate(
@@ -1102,7 +1114,19 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
             uBytesPerRow: uBytesPerRow,
             uBytesPerPixel: uBytesPerPixel,
           );
-          return [rgb[0], rgb[1], rgb[2]];
+          
+          if (inputType == TensorType.uint8) {
+            final r = ((rgb[0] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+            final g = ((rgb[1] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+            final b = ((rgb[2] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+            return [r, g, b];
+          } else {
+            // INT8
+            final r = ((rgb[0] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+            final g = ((rgb[1] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+            final b = ((rgb[2] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+            return [r, g, b];
+          }
         }, growable: false),
         growable: false,
       ),

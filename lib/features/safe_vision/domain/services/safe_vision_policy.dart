@@ -111,12 +111,29 @@ class SafeVisionPolicy {
     }
 
     if (mode == SafeVisionMode.indoor) {
-      final top = detections.first;
-      final label = localizedLabel(top, metadata);
+      final grouped = <String, int>{};
+      final firstByLabel = <String, Detection>{};
+
+      for (final detection in detections) {
+        final key = _normalizeLabel(detection.label);
+        grouped.update(key, (value) => value + 1, ifAbsent: () => 1);
+        firstByLabel.putIfAbsent(key, () => detection);
+      }
+
+      final items = <_BucketItem>[];
+      grouped.forEach((rawLabel, count) {
+        items.add(_BucketItem(
+          rawLabel: rawLabel,
+          viLabel: localizedLabel(firstByLabel[rawLabel]!, metadata),
+          count: count,
+        ));
+      });
+      items.sort((a, b) => b.count.compareTo(a.count)); // Ưu tiên số lượng nhiều
+
       return SafeVisionSpeechPayload(
-        message: 'Tìm thấy $label.',
+        message: 'Tìm thấy ${_joinBucketPhrases(items)}.',
         warningKeys: <String>{},
-        messageKey: 'indoor:${_normalizeLabel(top.label)}',
+        messageKey: 'indoor:${items.map((e) => '${e.count}${e.rawLabel}').join(',')}',
       );
     }
 
@@ -142,6 +159,7 @@ class SafeVisionPolicy {
 
     final warningItems = <_BucketItem>[];
     final instructionItems = <_BucketItem>[];
+    final recognitionItems = <_BucketItem>[];
 
     grouped.forEach((rawLabel, count) {
       final item = _BucketItem(
@@ -155,23 +173,31 @@ class SafeVisionPolicy {
         warningItems.add(item);
       } else if (bucket == SafeVisionLabelBucket.instruction) {
         instructionItems.add(item);
+      } else {
+        recognitionItems.add(item);
       }
     });
 
-    warningItems.sort((a, b) => a.rawLabel.compareTo(b.rawLabel));
-    instructionItems.sort((a, b) => a.rawLabel.compareTo(b.rawLabel));
+    warningItems.sort((a, b) => b.count.compareTo(a.count));
+    instructionItems.sort((a, b) => b.count.compareTo(a.count));
+    recognitionItems.sort((a, b) => b.count.compareTo(a.count));
 
     final chunks = <String>[];
+    // Ưu tiên Cảnh báo nguy hiểm > Chỉ dẫn > Tìm thấy vật
     if (warningItems.isNotEmpty) {
-      chunks.add('Cảnh báo có ${_joinBucketPhrases(warningItems)}.');
+      chunks.add('Nguy hiểm: ${_joinBucketPhrases(warningItems)}.');
     }
     if (instructionItems.isNotEmpty) {
-      chunks.add('Hướng dẫn ${_joinBucketPhrases(instructionItems)}.');
+      chunks.add('Chú ý: ${_joinBucketPhrases(instructionItems)}.');
+    }
+    if (recognitionItems.isNotEmpty) {
+      chunks.add('Phía trước có ${_joinBucketPhrases(recognitionItems)}.');
     }
 
     final messageKeyParts = <String>[
-      ...warningItems.map((item) => 'w:${item.rawLabel}'),
-      ...instructionItems.map((item) => 'i:${item.rawLabel}'),
+      ...warningItems.map((item) => 'w:${item.count}${item.rawLabel}'),
+      ...instructionItems.map((item) => 'i:${item.count}${item.rawLabel}'),
+      ...recognitionItems.map((item) => 'r:${item.count}${item.rawLabel}'),
     ];
 
     return SafeVisionSpeechPayload(

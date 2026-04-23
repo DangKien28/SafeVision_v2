@@ -253,33 +253,35 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       metadata: _labelMetadata,
     );
     if (payload.message.isEmpty) {
-      _lastSpokenMessageKey = '';
       _lastWarningKeys = payload.warningKeys;
       return;
     }
 
     if (payload.messageKey == _lastSpokenMessageKey) {
+      // Don't spam the same message unless it's a new warning that we must repeat
       return;
     }
 
     final hasNewWarning =
         payload.warningKeys.difference(_lastWarningKeys).isNotEmpty;
 
-    if (_speakMessageUseCase.isSpeaking && !hasNewWarning) {
-      return;
-    }
-
-    if (_speakMessageUseCase.isSpeaking && hasNewWarning) {
-      await _speakMessageUseCase.stop();
+    if (_speakMessageUseCase.isSpeaking) {
+      if (hasNewWarning) {
+        await _speakMessageUseCase.stop();
+      } else {
+        return; // Skip if currently speaking and no new warning
+      }
     }
 
     final now = DateTime.now();
-    if (!hasNewWarning &&
-        now.difference(_lastSmartTtsAt).inMilliseconds < _ttsCooldownMs) {
+    // Use smaller cooldown for warnings
+    final cooldown = hasNewWarning ? 500 : _ttsCooldownMs;
+    
+    if (now.difference(_lastSmartTtsAt).inMilliseconds < cooldown) {
       return;
     }
 
-    await _speakMessageUseCase(payload.message, interrupt: false);
+    await _speakMessageUseCase(payload.message, interrupt: true);
     _lastSmartTtsAt = now;
     _lastWarningKeys = payload.warningKeys;
     _lastSpokenMessageKey = payload.messageKey;
