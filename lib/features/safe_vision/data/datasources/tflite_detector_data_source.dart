@@ -383,9 +383,13 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
 
       final inputTensor = interpreter!.getInputTensor(0);
       inputTensor.setTo(input);
-      interpreter!.invoke();
+      interpreter.invoke();
       for (var i = 0; i < outputShapes.length; i++) {
-        interpreter!.getOutputTensor(i).copyTo(outputBuffers[i]!);
+        final outputBuffer = outputBuffers[i];
+        if (outputBuffer == null) {
+          continue;
+        }
+        interpreter.getOutputTensor(i).copyTo(outputBuffer);
       }
       final primaryIndex = _pickPrimaryOutputIndex(outputShapes);
       final flattened = _flattenOutputBuffer(
@@ -1003,10 +1007,15 @@ Detection _toDetectionWorker({
   final scaleW = max(x.abs(), w.abs()) > 2.0 ? inW.toDouble() : 1.0;
   final scaleH = max(y.abs(), h.abs()) > 2.0 ? inH.toDouble() : 1.0;
 
-  final leftModel = (x / scaleW).clamp(0.0, 1.0);
-  final topModel = (y / scaleH).clamp(0.0, 1.0);
-  final rightModel = (w / scaleW).clamp(0.0, 1.0);
-  final bottomModel = (h / scaleH).clamp(0.0, 1.0);
+  final centerX = x / scaleW;
+  final centerY = y / scaleH;
+  final width = w.abs() / scaleW;
+  final height = h.abs() / scaleH;
+
+  final leftModel = (centerX - width / 2).clamp(0.0, 1.0);
+  final topModel = (centerY - height / 2).clamp(0.0, 1.0);
+  final rightModel = (centerX + width / 2).clamp(0.0, 1.0);
+  final bottomModel = (centerY + height / 2).clamp(0.0, 1.0);
 
   final roiWidthNorm = (roiRight - roiLeft).clamp(0.0, 1.0);
   final roiHeightNorm = (roiBottom - roiTop).clamp(0.0, 1.0);

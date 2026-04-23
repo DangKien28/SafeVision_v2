@@ -129,12 +129,13 @@ class SafeVisionPolicy {
           count: count,
         ));
       });
-      items.sort((a, b) => b.count.compareTo(a.count)); // Ưu tiên số lượng nhiều
+      items.sort((a, b) => b.count.compareTo(a.count));
 
       return SafeVisionSpeechPayload(
         message: 'Tìm thấy ${_joinBucketPhrases(items)}.',
         warningKeys: <String>{},
-        messageKey: 'indoor:${items.map((e) => '${e.count}${e.rawLabel}').join(',')}',
+        messageKey:
+            'indoor:${items.map((e) => '${e.count}${e.rawLabel}').join(',')}',
       );
     }
 
@@ -184,9 +185,8 @@ class SafeVisionPolicy {
     recognitionItems.sort((a, b) => b.count.compareTo(a.count));
 
     final chunks = <String>[];
-    // Ưu tiên Cảnh báo nguy hiểm > Chỉ dẫn > Tìm thấy vật
     if (warningItems.isNotEmpty) {
-      chunks.add('Nguy hiểm: ${_joinBucketPhrases(warningItems)}.');
+      chunks.add('Cảnh báo có ${_joinBucketPhrases(warningItems)}.');
     }
     if (instructionItems.isNotEmpty) {
       chunks.add('Chú ý: ${_joinBucketPhrases(instructionItems)}.');
@@ -196,9 +196,9 @@ class SafeVisionPolicy {
     }
 
     final messageKeyParts = <String>[
-      ...warningItems.map((item) => 'w:${item.count}${item.rawLabel}'),
-      ...instructionItems.map((item) => 'i:${item.count}${item.rawLabel}'),
-      ...recognitionItems.map((item) => 'r:${item.count}${item.rawLabel}'),
+      ...warningItems.map((item) => 'w:${item.rawLabel}'),
+      ...instructionItems.map((item) => 'i:${item.rawLabel}'),
+      ...recognitionItems.map((item) => 'r:${item.rawLabel}'),
     ];
 
     return SafeVisionSpeechPayload(

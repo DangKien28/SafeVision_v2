@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'features/safe_vision/data/datasources/camera_data_source.dart';
-import 'features/safe_vision/data/datasources/mlkit_tracker_data_source.dart';
 import 'features/safe_vision/data/datasources/tflite_detector_data_source.dart';
 import 'features/safe_vision/data/datasources/tts_data_source.dart';
 import 'features/safe_vision/data/repositories/speech_repository_impl.dart';
@@ -28,7 +27,6 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
     super.initState();
 
     final cameraDataSource = CameraDataSource();
-    final trackerDataSource = MlKitTrackerDataSource();
     final detectorDataSource = TfliteDetectorDataSource(
       modelAsset: 'assets/best_int8.tflite',
       labelsAsset: 'assets/labels.txt',
@@ -37,10 +35,7 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
 
     final visionRepository = VisionRepositoryImpl(
       cameraDataSource: cameraDataSource,
-      trackerDataSource: trackerDataSource,
       detectorDataSource: detectorDataSource,
-      yoloIntervalFrames: 6,
-      roiRefreshFrames: 10,
     );
     final speechRepository = SpeechRepositoryImpl(ttsDataSource: ttsDataSource);
 
