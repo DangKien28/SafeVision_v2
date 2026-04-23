@@ -28,7 +28,7 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
 
     final cameraDataSource = CameraDataSource();
     final detectorDataSource = TfliteDetectorDataSource(
-      modelAsset: 'assets/best_int8.tflite',
+      modelAsset: 'assets/best_float32.tflite',
       labelsAsset: 'assets/labels.txt',
     );
     final ttsDataSource = TtsDataSource();
