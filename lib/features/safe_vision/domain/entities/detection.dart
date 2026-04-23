@@ -22,7 +22,7 @@ class Detection {
   double get width => max(0, right - left);
   double get height => max(0, bottom - top);
   double get areaRatio => width * height;
-  double get estimatedDistance => 1 / sqrt(max(areaRatio, 0.0001));
+  double get estimatedDistance => 1 / max(height, 0.0001);
   double get centerX => left + width / 2;
 
   String get labelVi {

@@ -7,6 +7,6 @@ abstract class VisionRepository {
   Future<CameraController> initializeCamera();
   Future<CameraController> switchCamera();
   Future<void> startImageStream(void Function(CameraImage image) onImage);
-  Future<List<Detection>> detect(CameraImage image);
+  Future<List<Detection>> detect(CameraImage image, {double confidenceThreshold = 0.40});
   Future<void> dispose();
 }

@@ -10,7 +10,9 @@ class TrackedObject {
     required this.top,
     required this.right,
     required this.bottom,
+    required this.smoothedScore,
     this.missedFrames = 0,
+    this.hitCount = 1,
   });
 
   final int id;
@@ -20,16 +22,20 @@ class TrackedObject {
   double right;
   double bottom;
   int missedFrames;
+  int hitCount;
+  double smoothedScore;
 }
 
 class IoUObjectTracker {
   IoUObjectTracker({
     this.iouThreshold = 0.3,
     this.maxMissedFrames = 5,
+    this.minHitCount = 3,
   });
 
   final double iouThreshold;
   final int maxMissedFrames;
+  final int minHitCount;
 
   final Map<int, TrackedObject> _tracks = {};
   int _nextId = 1;
@@ -70,19 +76,23 @@ class IoUObjectTracker {
         bestMatch.right = detection.right;
         bestMatch.bottom = detection.bottom;
         bestMatch.missedFrames = 0;
+        bestMatch.hitCount++;
+        bestMatch.smoothedScore = (bestMatch.smoothedScore * 0.5) + (detection.score * 0.5);
         matchedTrackIds.add(bestMatch.id);
 
-        updatedDetections.add(
-          Detection(
-            label: detection.label,
-            score: detection.score,
-            left: detection.left,
-            top: detection.top,
-            right: detection.right,
-            bottom: detection.bottom,
-            trackingId: bestMatch.id,
-          ),
-        );
+        if (bestMatch.hitCount >= minHitCount) {
+          updatedDetections.add(
+            Detection(
+              label: detection.label,
+              score: bestMatch.smoothedScore,
+              left: detection.left,
+              top: detection.top,
+              right: detection.right,
+              bottom: detection.bottom,
+              trackingId: bestMatch.id,
+            ),
+          );
+        }
       } else {
         // Create new track
         final newId = _nextId++;
@@ -93,21 +103,24 @@ class IoUObjectTracker {
           top: detection.top,
           right: detection.right,
           bottom: detection.bottom,
+          smoothedScore: detection.score,
         );
         _tracks[newId] = newTrack;
         matchedTrackIds.add(newId);
 
-        updatedDetections.add(
-          Detection(
-            label: detection.label,
-            score: detection.score,
-            left: detection.left,
-            top: detection.top,
-            right: detection.right,
-            bottom: detection.bottom,
-            trackingId: newId,
-          ),
-        );
+        if (newTrack.hitCount >= minHitCount) {
+          updatedDetections.add(
+            Detection(
+              label: detection.label,
+              score: newTrack.smoothedScore,
+              left: detection.left,
+              top: detection.top,
+              right: detection.right,
+              bottom: detection.bottom,
+              trackingId: newId,
+            ),
+          );
+        }
       }
     }
 

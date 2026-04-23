@@ -55,6 +55,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   DateTime _lastFpsCalculationTime = DateTime.now();
   int _frameCount = 0;
   double _currentFps = 0.0;
+  double _confidenceThreshold = 0.40;
 
   Future<void> _onStarted(
     SafeVisionStarted event,
@@ -107,7 +108,10 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         _lastFpsCalculationTime = now;
       }
 
-      final rawDetections = await _detectObjectsUseCase(event.image);
+      final rawDetections = await _detectObjectsUseCase(
+        event.image,
+        confidenceThreshold: _confidenceThreshold,
+      );
       final trackedDetections = _objectTracker.process(rawDetections);
       final detections = SafeVisionPolicy.filterDetectionsForMode(
         state.mode,

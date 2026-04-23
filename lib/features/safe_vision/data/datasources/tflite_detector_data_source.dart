@@ -139,18 +139,24 @@ class TfliteDetectorDataSource {
   Future<List<Detection>> detect(
     CameraImage cameraImage, {
     int rotationDegrees = 0,
+    double confidenceThreshold = 0.40,
   }) async {
     if (_workerSendPort == null) {
       return const [];
     }
 
-    return _requestDetection(cameraImage, rotationDegrees: rotationDegrees);
+    return _requestDetection(
+      cameraImage,
+      rotationDegrees: rotationDegrees,
+      confidenceThreshold: confidenceThreshold,
+    );
   }
 
   Future<List<Detection>> detectInRoi(
     CameraImage cameraImage,
     Rect roi, {
     int rotationDegrees = 0,
+    double confidenceThreshold = 0.40,
   }) async {
     if (_workerSendPort == null) {
       return const [];
@@ -170,6 +176,7 @@ class TfliteDetectorDataSource {
       cameraImage,
       roi: normalized,
       rotationDegrees: rotationDegrees,
+      confidenceThreshold: confidenceThreshold,
     );
     return local
         .map(
@@ -189,6 +196,7 @@ class TfliteDetectorDataSource {
     CameraImage image, {
     Rect? roi,
     int rotationDegrees = 0,
+    double confidenceThreshold = 0.40,
   }) {
     final sendPort = _workerSendPort;
     if (sendPort == null || image.planes.length < 3) {
@@ -214,11 +222,14 @@ class TfliteDetectorDataSource {
       'yBytesPerRow': yPlane.bytesPerRow,
       'uBytesPerRow': uPlane.bytesPerRow,
       'uBytesPerPixel': uPlane.bytesPerPixel ?? 1,
+      'vBytesPerRow': vPlane.bytesPerRow,
+      'vBytesPerPixel': vPlane.bytesPerPixel ?? 1,
       'roiLeft': roi?.left ?? 0.0,
       'roiTop': roi?.top ?? 0.0,
       'roiRight': roi?.right ?? 1.0,
       'roiBottom': roi?.bottom ?? 1.0,
       'rotationDegrees': rotationDegrees,
+      'confidenceThreshold': confidenceThreshold,
     });
 
     return completer.future;
@@ -373,6 +384,8 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
           'yBytesPerRow': rawMessage['yBytesPerRow'] as int,
           'uBytesPerRow': rawMessage['uBytesPerRow'] as int,
           'uBytesPerPixel': rawMessage['uBytesPerPixel'] as int,
+          'vBytesPerRow': rawMessage['vBytesPerRow'] as int,
+          'vBytesPerPixel': rawMessage['vBytesPerPixel'] as int,
           'roiLeft': (rawMessage['roiLeft'] as num).toDouble(),
           'roiTop': (rawMessage['roiTop'] as num).toDouble(),
           'roiRight': (rawMessage['roiRight'] as num).toDouble(),
@@ -419,6 +432,7 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
         roiTop: (rawMessage['roiTop'] as num).toDouble(),
         roiRight: (rawMessage['roiRight'] as num).toDouble(),
         roiBottom: (rawMessage['roiBottom'] as num).toDouble(),
+        confidenceThreshold: (rawMessage['confidenceThreshold'] as num?)?.toDouble() ?? 0.40,
       );
 
       final serialized = detections
@@ -495,6 +509,7 @@ List<Detection> _parseDetectionsFromBuffer({
   required double roiTop,
   required double roiRight,
   required double roiBottom,
+  required double confidenceThreshold,
 }) {
   if (outputShape.length < 3 || _bufferLength(outputBuffer) == 0) {
     return const [];
@@ -504,7 +519,7 @@ List<Detection> _parseDetectionsFromBuffer({
   final b = outputShape[2];
   final detections = <Detection>[];
 
-  var threshold = 0.40;
+  var threshold = confidenceThreshold;
 
   Detection? topCandidate;
   var topCandidateScore = -1.0;
@@ -655,7 +670,7 @@ List<Detection> _parseDetectionsFromBuffer({
     }
   }
 
-  final filtered = _nonMaxSuppressionWorker(detections, iouThreshold: 0.45);
+  final filtered = _nonMaxSuppressionWorker(detections, iouThreshold: 0.30);
   if (filtered.isEmpty && topCandidate != null && topCandidateScore > threshold) {
     filtered.add(topCandidate);
   }
@@ -1019,11 +1034,17 @@ Detection _toDetectionWorker({
 
   final roiWidthNorm = (roiRight - roiLeft).clamp(0.0, 1.0);
   final roiHeightNorm = (roiBottom - roiTop).clamp(0.0, 1.0);
-  final cropW = max(1.0, roiWidthNorm * frameW);
-  final cropH = max(1.0, roiHeightNorm * frameH);
-  final letterboxScale = min(inW / cropW, inH / cropH);
-  final scaledW = cropW * letterboxScale;
-  final scaledH = cropH * letterboxScale;
+  final rawCropW = max(1.0, roiWidthNorm * frameW);
+  final rawCropH = max(1.0, roiHeightNorm * frameH);
+
+  final deg = ((rotationDegrees % 360) + 360) % 360;
+  final isRotated90 = deg == 90 || deg == 270;
+  final effectiveCropW = isRotated90 ? rawCropH : rawCropW;
+  final effectiveCropH = isRotated90 ? rawCropW : rawCropH;
+
+  final letterboxScale = min(inW / effectiveCropW, inH / effectiveCropH);
+  final scaledW = effectiveCropW * letterboxScale;
+  final scaledH = effectiveCropH * letterboxScale;
   final padX = (inW - scaledW) / 2.0;
   final padY = (inH - scaledH) / 2.0;
 
@@ -1032,12 +1053,12 @@ Detection _toDetectionWorker({
   final rightPx = rightModel * inW;
   final bottomPx = bottomModel * inH;
 
-  final left = (((leftPx - padX) / letterboxScale) / cropW).clamp(0.0, 1.0);
-  final top = (((topPx - padY) / letterboxScale) / cropH).clamp(0.0, 1.0);
+  final left = (((leftPx - padX) / letterboxScale) / effectiveCropW).clamp(0.0, 1.0);
+  final top = (((topPx - padY) / letterboxScale) / effectiveCropH).clamp(0.0, 1.0);
   final right =
-      (((rightPx - padX) / letterboxScale) / cropW).clamp(0.0, 1.0);
+      (((rightPx - padX) / letterboxScale) / effectiveCropW).clamp(0.0, 1.0);
   final bottom =
-      (((bottomPx - padY) / letterboxScale) / cropH).clamp(0.0, 1.0);
+      (((bottomPx - padY) / letterboxScale) / effectiveCropH).clamp(0.0, 1.0);
 
   final label = classIndex >= 0 && classIndex < labels.length
       ? labels[classIndex]
@@ -1148,6 +1169,8 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final yBytesPerRow = payload['yBytesPerRow'] as int;
   final uBytesPerRow = payload['uBytesPerRow'] as int;
   final uBytesPerPixel = payload['uBytesPerPixel'] as int;
+  final vBytesPerRow = payload['vBytesPerRow'] as int;
+  final vBytesPerPixel = payload['vBytesPerPixel'] as int;
   final roiLeft = payload['roiLeft'] as double;
   final roiTop = payload['roiTop'] as double;
   final roiRight = payload['roiRight'] as double;
@@ -1156,11 +1179,17 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
 
   final cropX = (roiLeft * width).floor().clamp(0, width - 1);
   final cropY = (roiTop * height).floor().clamp(0, height - 1);
-  final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
-  final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
-  final letterboxScale = min(inputWidth / cropW, inputHeight / cropH);
-  final scaledW = cropW * letterboxScale;
-  final scaledH = cropH * letterboxScale;
+  final rawCropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
+  final rawCropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
+
+  final deg = ((rotationDegrees % 360) + 360) % 360;
+  final isRotated90 = deg == 90 || deg == 270;
+  final effectiveCropW = isRotated90 ? rawCropH : rawCropW;
+  final effectiveCropH = isRotated90 ? rawCropW : rawCropH;
+
+  final letterboxScale = min(inputWidth / effectiveCropW, inputHeight / effectiveCropH);
+  final scaledW = effectiveCropW * letterboxScale;
+  final scaledH = effectiveCropH * letterboxScale;
   final padX = (inputWidth - scaledW) / 2.0;
   final padY = (inputHeight - scaledH) / 2.0;
 
@@ -1195,12 +1224,12 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
 
           final mapped = modelToCrop(sampleX, sampleY);
           final rgb = _sampleRgbFromYuv(
-            xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
-            yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
+            xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
+            yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
             cropX: cropX,
             cropY: cropY,
-            cropW: cropW,
-            cropH: cropH,
+            cropW: rawCropW,
+            cropH: rawCropH,
             rotationDegrees: rotationDegrees,
             yBytes: yBytes,
             uBytes: uBytes,
@@ -1208,6 +1237,8 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
             yBytesPerRow: yBytesPerRow,
             uBytesPerRow: uBytesPerRow,
             uBytesPerPixel: uBytesPerPixel,
+            vBytesPerRow: vBytesPerRow,
+            vBytesPerPixel: vBytesPerPixel,
           );
           flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
               .round()
@@ -1241,12 +1272,12 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
 
         final mapped = modelToCrop(sampleX, sampleY);
         final rgb = _sampleRgbFromYuv(
-          xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
-          yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
+          xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
+          yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
           cropX: cropX,
           cropY: cropY,
-          cropW: cropW,
-          cropH: cropH,
+          cropW: rawCropW,
+          cropH: rawCropH,
           rotationDegrees: rotationDegrees,
           yBytes: yBytes,
           uBytes: uBytes,
@@ -1254,6 +1285,8 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
           yBytesPerRow: yBytesPerRow,
           uBytesPerRow: uBytesPerRow,
           uBytesPerPixel: uBytesPerPixel,
+          vBytesPerRow: vBytesPerRow,
+          vBytesPerPixel: vBytesPerPixel,
         );
         flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
             .round()
@@ -1284,12 +1317,12 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
 
       final mapped = modelToCrop(sampleX, sampleY);
       final rgb = _sampleRgbFromYuv(
-        xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
-        yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
+        xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
+        yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
         cropX: cropX,
         cropY: cropY,
-        cropW: cropW,
-        cropH: cropH,
+        cropW: rawCropW,
+        cropH: rawCropH,
         rotationDegrees: rotationDegrees,
         yBytes: yBytes,
         uBytes: uBytes,
@@ -1297,6 +1330,8 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
         yBytesPerRow: yBytesPerRow,
         uBytesPerRow: uBytesPerRow,
         uBytesPerPixel: uBytesPerPixel,
+        vBytesPerRow: vBytesPerRow,
+        vBytesPerPixel: vBytesPerPixel,
       );
       flat[cursor++] = rgb[0] / 255.0;
       flat[cursor++] = rgb[1] / 255.0;
@@ -1320,6 +1355,8 @@ List<int> _sampleRgbFromYuv({
   required int yBytesPerRow,
   required int uBytesPerRow,
   required int uBytesPerPixel,
+  required int vBytesPerRow,
+  required int vBytesPerPixel,
 }) {
   final deg = ((rotationDegrees % 360) + 360) % 360;
 
@@ -1347,11 +1384,12 @@ List<int> _sampleRgbFromYuv({
   final sy = cropY + (srcYNorm * (cropH - 1)).round();
 
   final yIndex = sy * yBytesPerRow + sx;
-  final uvIndex = (sy ~/ 2) * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
+  final uIndex = (sy ~/ 2) * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
+  final vIndex = (sy ~/ 2) * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel;
 
   final yp = yBytes[yIndex];
-  final up = uBytes[uvIndex];
-  final vp = vBytes[uvIndex];
+  final up = uBytes[uIndex];
+  final vp = vBytes[vIndex];
 
   final c = max(0, yp - 16);
   final d = up - 128;

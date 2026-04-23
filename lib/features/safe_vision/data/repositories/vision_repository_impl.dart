@@ -38,10 +38,11 @@ class VisionRepositoryImpl implements VisionRepository {
   }
 
   @override
-  Future<List<Detection>> detect(CameraImage image) {
+  Future<List<Detection>> detect(CameraImage image, {double confidenceThreshold = 0.40}) {
     return _detectorDataSource.detect(
       image,
       rotationDegrees: _resolveYoloRotationDegrees(),
+      confidenceThreshold: confidenceThreshold,
     );
   }
 
