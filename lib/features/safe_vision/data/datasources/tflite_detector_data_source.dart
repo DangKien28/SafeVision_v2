@@ -620,14 +620,6 @@ List<Detection> _parseDetectionsFromBuffer({
   return filtered;
 }
 
-int _modeledClassesCountWorker(List<int> outputShape) {
-  if (outputShape.length < 3) {
-    return 1;
-  }
-  final maybe = min(outputShape[1], outputShape[2]) - 4;
-  return max(1, maybe);
-}
-
 int _bufferLength(Object buffer) {
   if (buffer is Float32List) {
     return buffer.length;

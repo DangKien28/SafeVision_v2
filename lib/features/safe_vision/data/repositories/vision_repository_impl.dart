@@ -1,6 +1,7 @@
-import 'package:camera/camera.dart';
 import 'dart:math';
 import 'dart:ui';
+
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show DeviceOrientation;
 
@@ -17,11 +18,11 @@ class VisionRepositoryImpl implements VisionRepository {
     required TfliteDetectorDataSource detectorDataSource,
     int yoloIntervalFrames = 6,
     int roiRefreshFrames = 10,
-  })  : _cameraDataSource = cameraDataSource,
-        _trackerDataSource = trackerDataSource,
-        _detectorDataSource = detectorDataSource,
-        _yoloIntervalFrames = yoloIntervalFrames,
-        _roiRefreshFrames = roiRefreshFrames;
+  }) : _cameraDataSource = cameraDataSource,
+       _trackerDataSource = trackerDataSource,
+       _detectorDataSource = detectorDataSource,
+       _yoloIntervalFrames = yoloIntervalFrames,
+       _roiRefreshFrames = roiRefreshFrames;
 
   final CameraDataSource _cameraDataSource;
   final MlKitTrackerDataSource _trackerDataSource;
@@ -102,12 +103,36 @@ class VisionRepositoryImpl implements VisionRepository {
 
   Future<List<Detection>> _runYoloWithRoi(CameraImage image) async {
     final rotationDegrees = _resolveYoloRotationDegrees();
+    final shouldUseRoiOnly =
+        _lastPersonRois.isNotEmpty && _frameCounter % _roiRefreshFrames != 0;
 
-    // Tạm thời luôn detect toàn frame thay vì dùng ROI logic
-    return _detectorDataSource.detect(
-      image,
-      rotationDegrees: rotationDegrees,
-    );
+    if (!shouldUseRoiOnly) {
+      return _detectorDataSource.detect(
+        image,
+        rotationDegrees: rotationDegrees,
+      );
+    }
+
+    final roiDetections = <Detection>[];
+    final roiTargets = _lastPersonRois.take(3);
+    for (final roi in roiTargets) {
+      roiDetections.addAll(
+        await _detectorDataSource.detectInRoi(
+          image,
+          roi,
+          rotationDegrees: rotationDegrees,
+        ),
+      );
+    }
+
+    if (roiDetections.isEmpty) {
+      return _detectorDataSource.detect(
+        image,
+        rotationDegrees: rotationDegrees,
+      );
+    }
+
+    return _nonMaxSuppression(roiDetections, iouThreshold: 0.45);
   }
 
   int _resolveYoloRotationDegrees() {
@@ -133,8 +158,8 @@ class VisionRepositoryImpl implements VisionRepository {
     List<Detection> yolo,
   ) {
     final activeIds = tracked
-        .where((t) => t.id != null)
-        .map((t) => t.id!)
+        .where((trackedBox) => trackedBox.id != null)
+        .map((trackedBox) => trackedBox.id!)
         .toSet();
     _labelByTrackId.removeWhere((id, _) => !activeIds.contains(id));
 
@@ -197,19 +222,6 @@ class VisionRepositoryImpl implements VisionRepository {
       return null;
     }
     return best;
-  }
-
-  Rect _expandRect(Rect rect, {required double factor}) {
-    final cx = (rect.left + rect.right) / 2;
-    final cy = (rect.top + rect.bottom) / 2;
-    final halfW = rect.width * factor / 2;
-    final halfH = rect.height * factor / 2;
-    return Rect.fromLTRB(
-      (cx - halfW).clamp(0.0, 1.0),
-      (cy - halfH).clamp(0.0, 1.0),
-      (cx + halfW).clamp(0.0, 1.0),
-      (cy + halfH).clamp(0.0, 1.0),
-    );
   }
 
   List<Detection> _nonMaxSuppression(
