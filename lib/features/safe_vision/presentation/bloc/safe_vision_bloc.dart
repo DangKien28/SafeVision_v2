@@ -52,6 +52,10 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   bool _isProcessingFrame = false;
   Map<String, SafeVisionLabelMetadata> _labelMetadata = const {};
 
+  DateTime _lastFpsCalculationTime = DateTime.now();
+  int _frameCount = 0;
+  double _currentFps = 0.0;
+
   Future<void> _onStarted(
     SafeVisionStarted event,
     Emitter<SafeVisionState> emit,
@@ -94,6 +98,15 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     Emitter<SafeVisionState> emit,
   ) async {
     try {
+      _frameCount++;
+      final now = DateTime.now();
+      final diff = now.difference(_lastFpsCalculationTime).inMilliseconds;
+      if (diff >= 1000) {
+        _currentFps = _frameCount * 1000 / diff;
+        _frameCount = 0;
+        _lastFpsCalculationTime = now;
+      }
+
       final rawDetections = await _detectObjectsUseCase(event.image);
       final trackedDetections = _objectTracker.process(rawDetections);
       final detections = SafeVisionPolicy.filterDetectionsForMode(
@@ -106,12 +119,13 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         detections,
         _labelMetadata,
       );
+      final fpsText = 'FPS: ${_currentFps.toStringAsFixed(1)}';
 
       emit(
         state.copyWith(
           rawDetections: rawDetections,
           detections: detections,
-          statusText: status,
+          statusText: '$status | $fpsText',
           errorMessage: null,
         ),
       );

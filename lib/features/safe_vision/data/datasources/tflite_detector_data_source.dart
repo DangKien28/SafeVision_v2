@@ -656,7 +656,7 @@ List<Detection> _parseDetectionsFromBuffer({
   }
 
   final filtered = _nonMaxSuppressionWorker(detections, iouThreshold: 0.45);
-  if (filtered.isEmpty && topCandidate != null && topCandidateScore > 0.0) {
+  if (filtered.isEmpty && topCandidate != null && topCandidateScore > threshold) {
     filtered.add(topCandidate);
   }
   filtered.sort((a, b) => b.score.compareTo(a.score));
