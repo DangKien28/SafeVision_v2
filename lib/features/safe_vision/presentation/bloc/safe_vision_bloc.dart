@@ -8,6 +8,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/entities/safe_vision_mode.dart';
 import '../../domain/repositories/speech_repository.dart';
 import '../../domain/repositories/vision_repository.dart';
+import '../../domain/services/audio_manager.dart';
+import '../../domain/services/object_tracker.dart';
 import '../../domain/services/safe_vision_policy.dart';
 import '../../domain/usecases/detect_objects_usecase.dart';
 import '../../domain/usecases/initialize_vision_usecase.dart';
@@ -16,8 +18,7 @@ import 'safe_vision_event.dart';
 import 'safe_vision_state.dart';
 
 class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
-  static const int _frameThrottleMs = 33;
-  static const int _ttsCooldownMs = 1200;
+  static const int _frameThrottleMs = 100;
 
   SafeVisionBloc({
     required InitializeVisionUseCase initializeVisionUseCase,
@@ -30,6 +31,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
        _speakMessageUseCase = speakMessageUseCase,
        _visionRepository = visionRepository,
        _speechRepository = speechRepository,
+       _audioManager = AudioManager(speakMessageUseCase),
        super(SafeVisionState.initial()) {
     on<SafeVisionStarted>(_onStarted);
     on<CameraFrameReceived>(_onFrameReceived);
@@ -43,13 +45,12 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   final SpeakMessageUseCase _speakMessageUseCase;
   final VisionRepository _visionRepository;
   final SpeechRepository _speechRepository;
+  final AudioManager _audioManager;
+  final IoUObjectTracker _objectTracker = IoUObjectTracker();
 
   DateTime _lastFrameAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
-  DateTime _lastSmartTtsAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _isProcessingFrame = false;
   Map<String, SafeVisionLabelMetadata> _labelMetadata = const {};
-  Set<String> _lastWarningKeys = <String>{};
-  String _lastSpokenMessageKey = '';
 
   Future<void> _onStarted(
     SafeVisionStarted event,
@@ -94,9 +95,10 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   ) async {
     try {
       final rawDetections = await _detectObjectsUseCase(event.image);
+      final trackedDetections = _objectTracker.process(rawDetections);
       final detections = SafeVisionPolicy.filterDetectionsForMode(
         state.mode,
-        rawDetections,
+        trackedDetections,
         _labelMetadata,
       );
       final status = SafeVisionPolicy.buildStatusText(
@@ -114,7 +116,11 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         ),
       );
 
-      await _speakRiskAlert(state.mode, detections);
+      await _audioManager.processDetections(
+        mode: state.mode,
+        detections: detections,
+        metadata: _labelMetadata,
+      );
     } catch (e, st) {
       debugPrint('SafeVision frame error: $e');
       debugPrint('$st');
@@ -157,16 +163,13 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
 
     switch (event.mode) {
       case SafeVisionMode.outdoor:
-        _lastWarningKeys = <String>{};
-        _lastSpokenMessageKey = '';
+        _audioManager.reset();
         await _speakMessageUseCase('Chế độ di chuyển ngoài trời.');
       case SafeVisionMode.indoor:
-        _lastWarningKeys = <String>{};
-        _lastSpokenMessageKey = '';
+        _audioManager.reset();
         await _speakMessageUseCase('Chế độ tìm vật trong nhà.');
       case SafeVisionMode.tutorial:
-        _lastWarningKeys = <String>{};
-        _lastSpokenMessageKey = '';
+        _audioManager.reset();
         await _speakMessageUseCase(
           'Chế độ hướng dẫn. Vuốt qua trái hoặc phải để chuyển chế độ.',
         );
@@ -192,8 +195,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       emit(state.copyWith(isInitializing: true));
       _isProcessingFrame = false;
       _lastFrameAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
-      _lastWarningKeys = <String>{};
-      _lastSpokenMessageKey = '';
+      _audioManager.reset();
 
       final controller = await _visionRepository.switchCamera();
       await _visionRepository.startImageStream(_enqueueFrame);
@@ -243,49 +245,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     add(CameraFrameReceived(image));
   }
 
-  Future<void> _speakRiskAlert(
-    SafeVisionMode mode,
-    List<dynamic> detections,
-  ) async {
-    final payload = SafeVisionPolicy.buildSpeechPayload(
-      mode: mode,
-      detections: detections.cast(),
-      metadata: _labelMetadata,
-    );
-    if (payload.message.isEmpty) {
-      _lastWarningKeys = payload.warningKeys;
-      return;
-    }
 
-    if (payload.messageKey == _lastSpokenMessageKey) {
-      // Don't spam the same message unless it's a new warning that we must repeat
-      return;
-    }
-
-    final hasNewWarning =
-        payload.warningKeys.difference(_lastWarningKeys).isNotEmpty;
-
-    if (_speakMessageUseCase.isSpeaking) {
-      if (hasNewWarning) {
-        await _speakMessageUseCase.stop();
-      } else {
-        return; // Skip if currently speaking and no new warning
-      }
-    }
-
-    final now = DateTime.now();
-    // Use smaller cooldown for warnings
-    final cooldown = hasNewWarning ? 500 : _ttsCooldownMs;
-    
-    if (now.difference(_lastSmartTtsAt).inMilliseconds < cooldown) {
-      return;
-    }
-
-    await _speakMessageUseCase(payload.message, interrupt: true);
-    _lastSmartTtsAt = now;
-    _lastWarningKeys = payload.warningKeys;
-    _lastSpokenMessageKey = payload.messageKey;
-  }
 
   Future<void> _loadTtsMetadata() async {
     if (_labelMetadata.isNotEmpty) {

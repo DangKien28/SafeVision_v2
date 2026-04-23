@@ -3,6 +3,8 @@ import '../entities/safe_vision_mode.dart';
 
 enum SafeVisionLabelBucket { warning, instruction, recognition }
 
+enum RiskZone { safe, warning, danger }
+
 class SafeVisionLabelMetadata {
   const SafeVisionLabelMetadata({
     required this.viLabel,
@@ -208,9 +210,20 @@ class SafeVisionPolicy {
     );
   }
 
+  static RiskZone getRiskZone(Detection detection) {
+    if (shouldAlwaysWarn(detection)) return RiskZone.danger;
+    
+    if (detection.estimatedDistance < 2.5 || detection.bottom >= 0.8) {
+      return RiskZone.danger;
+    }
+    if (detection.estimatedDistance < 4.0 || detection.bottom >= 0.6) {
+      return RiskZone.warning;
+    }
+    return RiskZone.safe;
+  }
+
   static bool isInRiskZone(Detection detection) {
-    return detection.areaRatio >= riskZoneAreaThreshold ||
-        detection.bottom >= riskZoneBottomThreshold;
+    return getRiskZone(detection) != RiskZone.safe;
   }
 
   static bool shouldAlwaysWarn(Detection detection) {

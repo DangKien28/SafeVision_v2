@@ -8,6 +8,7 @@ class Detection {
     required this.top,
     required this.right,
     required this.bottom,
+    this.trackingId,
   });
 
   final String label;
@@ -16,10 +17,12 @@ class Detection {
   final double top;
   final double right;
   final double bottom;
+  final int? trackingId;
 
   double get width => max(0, right - left);
   double get height => max(0, bottom - top);
   double get areaRatio => width * height;
+  double get estimatedDistance => 1 / sqrt(max(areaRatio, 0.0001));
   double get centerX => left + width / 2;
 
   String get labelVi {
