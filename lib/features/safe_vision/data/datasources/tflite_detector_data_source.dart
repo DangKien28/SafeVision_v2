@@ -381,7 +381,12 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
         },
       );
 
-      interpreter!.runForMultipleInputs([input], outputBuffers);
+      final inputTensor = interpreter!.getInputTensor(0);
+      inputTensor.setTo(input);
+      interpreter!.invoke();
+      for (var i = 0; i < outputShapes.length; i++) {
+        interpreter!.getOutputTensor(i).copyTo(outputBuffers[i]!);
+      }
       final primaryIndex = _pickPrimaryOutputIndex(outputShapes);
       final flattened = _flattenOutputBuffer(
         outputBuffers[primaryIndex],
@@ -404,6 +409,12 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
         labels: labels,
         inW: inputShape[2],
         inH: inputShape[1],
+        frameW: width,
+        frameH: height,
+        roiLeft: (rawMessage['roiLeft'] as num).toDouble(),
+        roiTop: (rawMessage['roiTop'] as num).toDouble(),
+        roiRight: (rawMessage['roiRight'] as num).toDouble(),
+        roiBottom: (rawMessage['roiBottom'] as num).toDouble(),
       );
 
       final serialized = detections
@@ -474,6 +485,12 @@ List<Detection> _parseDetectionsFromBuffer({
   required List<String> labels,
   required int inW,
   required int inH,
+  required int frameW,
+  required int frameH,
+  required double roiLeft,
+  required double roiTop,
+  required double roiRight,
+  required double roiBottom,
 }) {
   if (outputShape.length < 3 || _bufferLength(outputBuffer) == 0) {
     return const [];
@@ -542,6 +559,12 @@ List<Detection> _parseDetectionsFromBuffer({
         labels: labels,
         inW: inW,
         inH: inH,
+        frameW: frameW,
+        frameH: frameH,
+        roiLeft: roiLeft,
+        roiTop: roiTop,
+        roiRight: roiRight,
+        roiBottom: roiBottom,
       );
       if (bestScore > topCandidateScore) {
         topCandidateScore = bestScore;
@@ -609,6 +632,12 @@ List<Detection> _parseDetectionsFromBuffer({
         labels: labels,
         inW: inW,
         inH: inH,
+        frameW: frameW,
+        frameH: frameH,
+        roiLeft: roiLeft,
+        roiTop: roiTop,
+        roiRight: roiRight,
+        roiBottom: roiBottom,
       );
       if (bestScore > topCandidateScore) {
         topCandidateScore = bestScore;
@@ -964,14 +993,42 @@ Detection _toDetectionWorker({
   required List<String> labels,
   required int inW,
   required int inH,
+  required int frameW,
+  required int frameH,
+  required double roiLeft,
+  required double roiTop,
+  required double roiRight,
+  required double roiBottom,
 }) {
   final scaleW = max(x.abs(), w.abs()) > 2.0 ? inW.toDouble() : 1.0;
   final scaleH = max(y.abs(), h.abs()) > 2.0 ? inH.toDouble() : 1.0;
 
-  final left = x / scaleW;
-  final top = y / scaleH;
-  final right = w / scaleW;
-  final bottom = h / scaleH;
+  final leftModel = (x / scaleW).clamp(0.0, 1.0);
+  final topModel = (y / scaleH).clamp(0.0, 1.0);
+  final rightModel = (w / scaleW).clamp(0.0, 1.0);
+  final bottomModel = (h / scaleH).clamp(0.0, 1.0);
+
+  final roiWidthNorm = (roiRight - roiLeft).clamp(0.0, 1.0);
+  final roiHeightNorm = (roiBottom - roiTop).clamp(0.0, 1.0);
+  final cropW = max(1.0, roiWidthNorm * frameW);
+  final cropH = max(1.0, roiHeightNorm * frameH);
+  final letterboxScale = min(inW / cropW, inH / cropH);
+  final scaledW = cropW * letterboxScale;
+  final scaledH = cropH * letterboxScale;
+  final padX = (inW - scaledW) / 2.0;
+  final padY = (inH - scaledH) / 2.0;
+
+  final leftPx = leftModel * inW;
+  final topPx = topModel * inH;
+  final rightPx = rightModel * inW;
+  final bottomPx = bottomModel * inH;
+
+  final left = (((leftPx - padX) / letterboxScale) / cropW).clamp(0.0, 1.0);
+  final top = (((topPx - padY) / letterboxScale) / cropH).clamp(0.0, 1.0);
+  final right =
+      (((rightPx - padX) / letterboxScale) / cropW).clamp(0.0, 1.0);
+  final bottom =
+      (((bottomPx - padY) / letterboxScale) / cropH).clamp(0.0, 1.0);
 
   final label = classIndex >= 0 && classIndex < labels.length
       ? labels[classIndex]
@@ -1092,16 +1149,45 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final cropY = (roiTop * height).floor().clamp(0, height - 1);
   final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
   final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
+  final letterboxScale = min(inputWidth / cropW, inputHeight / cropH);
+  final scaledW = cropW * letterboxScale;
+  final scaledH = cropH * letterboxScale;
+  final padX = (inputWidth - scaledW) / 2.0;
+  final padY = (inputHeight - scaledH) / 2.0;
+
+  bool isInsideLetterbox(double x, double y) {
+    return x >= padX && x < (padX + scaledW) && y >= padY && y < (padY + scaledH);
+  }
+
+  (double, double) modelToCrop(double x, double y) {
+    final cropX = (x - padX) / letterboxScale;
+    final cropY = (y - padY) / letterboxScale;
+    return (cropX, cropY);
+  }
 
   if (inputType == TensorType.uint8 || inputType == TensorType.int8) {
-    return List.generate(
-      1,
-      (_) => List.generate(
-        inputHeight,
-        (y) => List.generate(inputWidth, (x) {
+    final inputSize = inputWidth * inputHeight * 3;
+    if (inputType == TensorType.uint8) {
+      final flat = Uint8List(inputSize);
+      var cursor = 0;
+      for (var y = 0; y < inputHeight; y++) {
+        for (var x = 0; x < inputWidth; x++) {
+          final sampleX = x + 0.5;
+          final sampleY = y + 0.5;
+          if (!isInsideLetterbox(sampleX, sampleY)) {
+            final q = ((0.0 / 255.0) / inputScale + inputZeroPoint)
+                .round()
+                .clamp(0, 255);
+            flat[cursor++] = q;
+            flat[cursor++] = q;
+            flat[cursor++] = q;
+            continue;
+          }
+
+          final mapped = modelToCrop(sampleX, sampleY);
           final rgb = _sampleRgbFromYuv(
-            xNorm: (x + 0.5) / inputWidth,
-            yNorm: (y + 0.5) / inputHeight,
+            xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
+            yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
             cropX: cropX,
             cropY: cropY,
             cropW: cropW,
@@ -1114,34 +1200,40 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
             uBytesPerRow: uBytesPerRow,
             uBytesPerPixel: uBytesPerPixel,
           );
-          
-          if (inputType == TensorType.uint8) {
-            final r = ((rgb[0] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
-            final g = ((rgb[1] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
-            final b = ((rgb[2] / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
-            return [r, g, b];
-          } else {
-            // INT8
-            final r = ((rgb[0] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-            final g = ((rgb[1] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-            final b = ((rgb[2] / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-            return [r, g, b];
-          }
-        }, growable: false),
-        growable: false,
-      ),
-      growable: false,
-    );
-  }
+          flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
+              .round()
+              .clamp(0, 255);
+          flat[cursor++] = ((rgb[1] / 255.0) / inputScale + inputZeroPoint)
+              .round()
+              .clamp(0, 255);
+          flat[cursor++] = ((rgb[2] / 255.0) / inputScale + inputZeroPoint)
+              .round()
+              .clamp(0, 255);
+        }
+      }
+      return flat;
+    }
 
-  return List.generate(
-    1,
-    (_) => List.generate(
-      inputHeight,
-      (y) => List.generate(inputWidth, (x) {
+    final flat = Int8List(inputSize);
+    var cursor = 0;
+    for (var y = 0; y < inputHeight; y++) {
+      for (var x = 0; x < inputWidth; x++) {
+        final sampleX = x + 0.5;
+        final sampleY = y + 0.5;
+        if (!isInsideLetterbox(sampleX, sampleY)) {
+          final q = ((0.0 / 255.0) / inputScale + inputZeroPoint)
+              .round()
+              .clamp(-128, 127);
+          flat[cursor++] = q;
+          flat[cursor++] = q;
+          flat[cursor++] = q;
+          continue;
+        }
+
+        final mapped = modelToCrop(sampleX, sampleY);
         final rgb = _sampleRgbFromYuv(
-          xNorm: (x + 0.5) / inputWidth,
-          yNorm: (y + 0.5) / inputHeight,
+          xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
+          yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
           cropX: cropX,
           cropY: cropY,
           cropW: cropW,
@@ -1154,12 +1246,55 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
           uBytesPerRow: uBytesPerRow,
           uBytesPerPixel: uBytesPerPixel,
         );
-        return [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0];
-      }, growable: false),
-      growable: false,
-    ),
-    growable: false,
-  );
+        flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
+            .round()
+            .clamp(-128, 127);
+        flat[cursor++] = ((rgb[1] / 255.0) / inputScale + inputZeroPoint)
+            .round()
+            .clamp(-128, 127);
+        flat[cursor++] = ((rgb[2] / 255.0) / inputScale + inputZeroPoint)
+            .round()
+            .clamp(-128, 127);
+      }
+    }
+    return flat;
+  }
+
+  final flat = Float32List(inputWidth * inputHeight * 3);
+  var cursor = 0;
+  for (var y = 0; y < inputHeight; y++) {
+    for (var x = 0; x < inputWidth; x++) {
+      final sampleX = x + 0.5;
+      final sampleY = y + 0.5;
+      if (!isInsideLetterbox(sampleX, sampleY)) {
+        flat[cursor++] = 0;
+        flat[cursor++] = 0;
+        flat[cursor++] = 0;
+        continue;
+      }
+
+      final mapped = modelToCrop(sampleX, sampleY);
+      final rgb = _sampleRgbFromYuv(
+        xNorm: (mapped.$1 / cropW).clamp(0.0, 1.0),
+        yNorm: (mapped.$2 / cropH).clamp(0.0, 1.0),
+        cropX: cropX,
+        cropY: cropY,
+        cropW: cropW,
+        cropH: cropH,
+        rotationDegrees: rotationDegrees,
+        yBytes: yBytes,
+        uBytes: uBytes,
+        vBytes: vBytes,
+        yBytesPerRow: yBytesPerRow,
+        uBytesPerRow: uBytesPerRow,
+        uBytesPerPixel: uBytesPerPixel,
+      );
+      flat[cursor++] = rgb[0] / 255.0;
+      flat[cursor++] = rgb[1] / 255.0;
+      flat[cursor++] = rgb[2] / 255.0;
+    }
+  }
+  return flat;
 }
 
 List<int> _sampleRgbFromYuv({
@@ -1209,12 +1344,13 @@ List<int> _sampleRgbFromYuv({
   final up = uBytes[uvIndex];
   final vp = vBytes[uvIndex];
 
-  final r = (yp + 1.403 * (vp - 128)).round().clamp(0, 255);
-  final g = (yp - 0.344 * (up - 128) - 0.714 * (vp - 128)).round().clamp(
-    0,
-    255,
-  );
-  final b = (yp + 1.770 * (up - 128)).round().clamp(0, 255);
+  final c = max(0, yp - 16);
+  final d = up - 128;
+  final e = vp - 128;
+
+  final r = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255);
+  final g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
+  final b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
 
   return [r, g, b];
 }

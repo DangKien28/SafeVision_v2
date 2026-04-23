@@ -26,7 +26,8 @@ class SafeVisionSpeechPayload {
 }
 
 class SafeVisionPolicy {
-  static const double riskZoneAreaThreshold = 0.30;
+  static const double riskZoneAreaThreshold = 0.12;
+  static const double riskZoneBottomThreshold = 0.70;
   static const Set<String> _alwaysWarnLabels = {'lua', 'fire'};
 
   static List<Detection> filterDetectionsForMode(
@@ -208,7 +209,8 @@ class SafeVisionPolicy {
   }
 
   static bool isInRiskZone(Detection detection) {
-    return detection.areaRatio >= riskZoneAreaThreshold;
+    return detection.areaRatio >= riskZoneAreaThreshold ||
+        detection.bottom >= riskZoneBottomThreshold;
   }
 
   static bool shouldAlwaysWarn(Detection detection) {
