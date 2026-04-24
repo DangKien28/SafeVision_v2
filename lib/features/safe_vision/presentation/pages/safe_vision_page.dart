@@ -11,6 +11,7 @@ import '../widgets/bottom_action_bar.dart';
 import '../widgets/detection_painter.dart';
 import '../widgets/loading_panel.dart';
 import '../widgets/top_status_bar.dart';
+import 'settings_page.dart';
 
 class SafeVisionPage extends StatefulWidget {
   const SafeVisionPage({super.key});
@@ -28,75 +29,15 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
     context.read<SafeVisionBloc>().add(const SafeVisionStarted());
   }
 
-  void _showSettings(BuildContext context) {
+  void _navigateToSettings(BuildContext context) {
     final bloc = context.read<SafeVisionBloc>();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF102019),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return BlocProvider.value(
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BlocProvider.value(
           value: bloc,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'CÀI ĐẶT',
-                  style: TextStyle(
-                    color: Color(0xFF00FFB3),
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'Âm lượng hướng dẫn',
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                ),
-                BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  builder: (context, state) {
-                    return Slider(
-                      value: state.volume,
-                      activeColor: const Color(0xFF00FFB3),
-                      onChanged: (v) {
-                        context.read<SafeVisionBloc>().add(
-                          SafeVisionVolumeChanged(v),
-                        );
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Độ phóng đại (Zoom)',
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                ),
-                BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  builder: (context, state) {
-                    return Slider(
-                      value: state.zoomLevel,
-                      min: 1.0,
-                      max: 5.0,
-                      activeColor: const Color(0xFF00FFB3),
-                      onChanged: (v) {
-                        context.read<SafeVisionBloc>().add(
-                          SafeVisionZoomChanged(v),
-                        );
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        );
-      },
+          child: const SettingsPage(),
+        ),
+      ),
     );
   }
 
@@ -105,6 +46,9 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
     return Scaffold(
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onDoubleTap: () {
+          context.read<SafeVisionBloc>().add(const CameraLensToggled());
+        },
         onHorizontalDragEnd: (details) {
           final velocity = details.primaryVelocity ?? 0;
           if (velocity.abs() < _swipeThreshold) {
@@ -125,27 +69,15 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
             ),
             // Top Controls
             Positioned(
-              top: 16,
-              left: 16,
+              top: 48,
               right: 16,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _RoundButton(
-                    icon: Icons.cameraswitch,
-                    label: 'ĐỔI CAMERA',
-                    onPressed: () {
-                      context.read<SafeVisionBloc>().add(
-                        const CameraLensToggled(),
-                      );
-                    },
-                  ),
-                  _RoundButton(
-                    icon: Icons.settings,
-                    label: 'CÀI ĐẶT',
-                    onPressed: () => _showSettings(context),
-                  ),
-                ],
+              child: IconButton(
+                icon: const Icon(Icons.settings, color: Colors.white, size: 36),
+                onPressed: () => _navigateToSettings(context),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black26,
+                  padding: const EdgeInsets.all(12),
+                ),
               ),
             ),
             Positioned(

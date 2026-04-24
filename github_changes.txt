@@ -1,0 +1,32 @@
+# Thay đổi từ GitHub (GitHub Changes)
+
+Dưới đây là các thay đổi được ghi nhận từ kho lưu trữ GitHub (remote origin) so với phiên bản hiện tại trong máy.
+
+## Các Commit mới:
+1. 03a24e7: "FiX UIII" (Sửa lỗi giao diện III)
+2. dbdcd65: "change UI" (Thay đổi giao diện)
+3. 11da153: "change UI" (Thay đổi giao diện)
+
+## Chi tiết các thay đổi trong mã nguồn:
+
+### 1. lib/features/safe_vision/presentation/pages/safe_vision_page.dart
+- Đã xóa bỏ widget `_RoundButton` (nút tròn cho Camera và Settings).
+- Loại bỏ một lượng lớn mã nguồn xử lý giao diện cũ (-152 dòng), làm gọn cấu trúc trang chính.
+- Điều chỉnh cách bố trí các nút điều khiển phía trên màn hình.
+
+### 2. lib/features/safe_vision/domain/services/safe_vision_policy.dart
+- Có 6 thay đổi nhỏ liên quan đến logic hoặc hằng số.
+
+### 3. lib/features/safe_vision/presentation/bloc/safe_vision_bloc.dart
+- Loại bỏ một số logic không còn sử dụng hoặc được đơn giản hóa (-11 dòng).
+
+### 4. lib/features/safe_vision/presentation/widgets/detection_painter.dart & bottom_action_bar.dart
+- Chỉnh sửa nhỏ về hiển thị khung nhận diện (painter) và thanh công cụ bên dưới.
+
+### 5. pubspec.yaml
+- Thêm một dependency hoặc cấu hình mới (1 dòng).
+
+## Nhận xét:
+Các thay đổi trên GitHub tập trung chủ yếu vào việc **tối giản hóa và làm sạch giao diện (UI Cleanup)**. Điều này có thể gây xung đột với các tính năng UI mới mà chúng ta vừa triển khai (nút Voice, nút Settings mới).
+
+Bạn có muốn tôi thực hiện `git pull` để hợp nhất các thay đổi này không? (Lưu ý: Có thể phát sinh xung đột cần xử lý thủ công).

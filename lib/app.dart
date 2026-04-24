@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'features/safe_vision/data/datasources/camera_data_source.dart';
+import 'features/safe_vision/data/datasources/stt_data_source.dart';
 import 'features/safe_vision/data/datasources/tflite_detector_data_source.dart';
 import 'features/safe_vision/data/datasources/tts_data_source.dart';
 import 'features/safe_vision/data/repositories/speech_repository_impl.dart';
 import 'features/safe_vision/data/repositories/vision_repository_impl.dart';
 import 'features/safe_vision/domain/usecases/detect_objects_usecase.dart';
 import 'features/safe_vision/domain/usecases/initialize_vision_usecase.dart';
+import 'features/safe_vision/domain/usecases/listen_for_command_usecase.dart';
 import 'features/safe_vision/domain/usecases/speak_message_usecase.dart';
 import 'features/safe_vision/presentation/bloc/safe_vision_bloc.dart';
 import 'features/safe_vision/presentation/pages/safe_vision_page.dart';
@@ -32,17 +34,22 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
       labelsAsset: 'assets/labels.txt',
     );
     final ttsDataSource = TtsDataSource();
+    final sttDataSource = SttDataSource();
 
     final visionRepository = VisionRepositoryImpl(
       cameraDataSource: cameraDataSource,
       detectorDataSource: detectorDataSource,
     );
-    final speechRepository = SpeechRepositoryImpl(ttsDataSource: ttsDataSource);
+    final speechRepository = SpeechRepositoryImpl(
+      ttsDataSource: ttsDataSource,
+      sttDataSource: sttDataSource,
+    );
 
     _bloc = SafeVisionBloc(
       initializeVisionUseCase: InitializeVisionUseCase(visionRepository),
       detectObjectsUseCase: DetectObjectsUseCase(visionRepository),
       speakMessageUseCase: SpeakMessageUseCase(speechRepository),
+      listenForCommandUseCase: ListenForCommandUseCase(speechRepository),
       visionRepository: visionRepository,
       speechRepository: speechRepository,
     );
@@ -56,17 +63,18 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
 
   @override
   Widget build(BuildContext context) {
+    const primaryColor = Color(0xFF1E88E5); // App Logo Blue (Blue 600)
     final theme = ThemeData(
       useMaterial3: true,
       colorScheme: const ColorScheme.dark(
-        primary: Color(0xFF00FFB3),
-        secondary: Color(0xFF00FFB3),
-        surface: Color(0xFF102019),
+        primary: primaryColor,
+        secondary: primaryColor,
+        surface: Color(0xFF0D1B2A),
       ),
-      scaffoldBackgroundColor: const Color(0xFF0A120E),
+      scaffoldBackgroundColor: const Color(0xFF04080F),
       textTheme: const TextTheme(
         headlineMedium: TextStyle(
-          color: Color(0xFF00FFB3),
+          color: primaryColor,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
         ),

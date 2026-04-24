@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../domain/entities/detection.dart';
 import '../../domain/entities/safe_vision_mode.dart';
 import '../../domain/repositories/speech_repository.dart';
 import '../../domain/repositories/vision_repository.dart';
@@ -13,22 +14,25 @@ import '../../domain/services/object_tracker.dart';
 import '../../domain/services/safe_vision_policy.dart';
 import '../../domain/usecases/detect_objects_usecase.dart';
 import '../../domain/usecases/initialize_vision_usecase.dart';
+import '../../domain/usecases/listen_for_command_usecase.dart';
 import '../../domain/usecases/speak_message_usecase.dart';
 import 'safe_vision_event.dart';
 import 'safe_vision_state.dart';
 
 class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
-  static const int _frameThrottleMs = 33;
+  static const int _frameThrottleMs = 200;
 
   SafeVisionBloc({
     required InitializeVisionUseCase initializeVisionUseCase,
     required DetectObjectsUseCase detectObjectsUseCase,
     required SpeakMessageUseCase speakMessageUseCase,
+    required ListenForCommandUseCase listenForCommandUseCase,
     required VisionRepository visionRepository,
     required SpeechRepository speechRepository,
   }) : _initializeVisionUseCase = initializeVisionUseCase,
        _detectObjectsUseCase = detectObjectsUseCase,
        _speakMessageUseCase = speakMessageUseCase,
+       _listenForCommandUseCase = listenForCommandUseCase,
        _visionRepository = visionRepository,
        _speechRepository = speechRepository,
        _audioManager = AudioManager(speakMessageUseCase),
@@ -40,11 +44,13 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     on<CameraLensToggled>(_onCameraLensToggled);
     on<SafeVisionVolumeChanged>(_onVolumeChanged);
     on<SafeVisionZoomChanged>(_onZoomChanged);
+    on<VoiceCommandStarted>(_onVoiceCommandStarted);
   }
 
   final InitializeVisionUseCase _initializeVisionUseCase;
   final DetectObjectsUseCase _detectObjectsUseCase;
   final SpeakMessageUseCase _speakMessageUseCase;
+  final ListenForCommandUseCase _listenForCommandUseCase;
   final VisionRepository _visionRepository;
   final SpeechRepository _speechRepository;
   final AudioManager _audioManager;
@@ -53,6 +59,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   DateTime _lastFrameAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _isProcessingFrame = false;
   Map<String, SafeVisionLabelMetadata> _labelMetadata = const {};
+  final Map<int, double> _previousWidths = {};
 
   DateTime _lastFpsCalculationTime = DateTime.now();
   int _frameCount = 0;
@@ -131,15 +138,51 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       // Resetting here breaks tracking ID continuity across momentary detection
       // gaps and defeats AudioManager's per-track cooldown logic, causing TTS spam.
       final trackedDetections = _objectTracker.process(rawDetections);
+      final updatedTrackedDetections = <Detection>[];
+      for (final detection in trackedDetections) {
+        var isRushing = false;
+        if (detection.trackingId != null) {
+          final prevWidth = _previousWidths[detection.trackingId!];
+          if (prevWidth != null && prevWidth > 0) {
+            final expansion = (detection.width - prevWidth) / prevWidth;
+            if (expansion > 0.15) { // 15% expansion
+              isRushing = true;
+            }
+          }
+          _previousWidths[detection.trackingId!] = detection.width;
+        }
+        
+        if (isRushing) {
+          updatedTrackedDetections.add(Detection(
+            label: detection.label,
+            score: detection.score,
+            left: detection.left,
+            top: detection.top,
+            right: detection.right,
+            bottom: detection.bottom,
+            trackingId: detection.trackingId,
+            isRushing: true,
+          ));
+        } else {
+          updatedTrackedDetections.add(detection);
+        }
+      }
+
       final detections = SafeVisionPolicy.filterDetectionsForMode(
         state.mode,
-        trackedDetections,
+        updatedTrackedDetections,
         _labelMetadata,
       );
       final status = SafeVisionPolicy.buildStatusText(
         state.mode,
         detections,
         _labelMetadata,
+      );
+
+      _audioManager.processDetections(
+        mode: state.mode,
+        detections: detections,
+        metadata: _labelMetadata,
       );
       final fpsText = 'FPS: ${_currentFps.toStringAsFixed(1)}';
 
@@ -150,12 +193,6 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
           statusText: '$status | $fpsText',
           clearError: true,
         ),
-      );
-
-      await _audioManager.processDetections(
-        mode: state.mode,
-        detections: detections,
-        metadata: _labelMetadata,
       );
     } catch (e, st) {
       debugPrint('SafeVision frame error: $e');
@@ -289,6 +326,35 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     emit(state.copyWith(zoomLevel: event.zoom));
   }
 
+  Future<void> _onVoiceCommandStarted(
+    VoiceCommandStarted event,
+    Emitter<SafeVisionState> emit,
+  ) async {
+    if (state.isListening) return;
+
+    emit(state.copyWith(isListening: true));
+
+    try {
+      await _listenForCommandUseCase(
+        prompt: 'Bạn muốn dùng chế độ gì, ngoài trời hay trong nhà?',
+        onResult: (text) {
+          final normalized = text.toLowerCase();
+          if (normalized.contains('ngoài trời')) {
+            add(const SafeVisionModeChanged(SafeVisionMode.outdoor));
+          } else if (normalized.contains('trong nhà')) {
+            add(const SafeVisionModeChanged(SafeVisionMode.indoor));
+          } else {
+             _speakMessageUseCase('Tôi không rõ bạn muốn chuyển sang chế độ nào. Hãy thử lại.');
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('Voice command error: $e');
+    } finally {
+      emit(state.copyWith(isListening: false));
+    }
+  }
+
   void _enqueueFrame(CameraImage image) {
     if (_isProcessingFrame) {
       return;
@@ -355,34 +421,42 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       'car': SafeVisionLabelMetadata(
         viLabel: 'ô tô',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.5,
       ),
       'xe': SafeVisionLabelMetadata(
-        viLabel: 'ô tô',
+        viLabel: 'xe',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.5,
       ),
       'ho': SafeVisionLabelMetadata(
         viLabel: 'hố',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.3,
       ),
       'hole': SafeVisionLabelMetadata(
         viLabel: 'hố',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.3,
       ),
       'lua': SafeVisionLabelMetadata(
         viLabel: 'lửa',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 2.0,
       ),
       'fire': SafeVisionLabelMetadata(
         viLabel: 'lửa',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 2.0,
       ),
       'cau_thang': SafeVisionLabelMetadata(
         viLabel: 'cầu thang',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.2,
       ),
       'stairs': SafeVisionLabelMetadata(
         viLabel: 'cầu thang',
         bucket: SafeVisionLabelBucket.warning,
+        riskScale: 1.2,
       ),
       'door': SafeVisionLabelMetadata(
         viLabel: 'cửa ra vào',

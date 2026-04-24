@@ -38,6 +38,8 @@ dependencies:
   flutter_tts: ^4.2.2
   image: ^4.2.0
   tflite_flutter: ^0.11.0
+  audioplayers: ^6.1.0
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +75,7 @@ flutter:
     - assets/best_float16.tflite
     - assets/labels.txt
     - assets/labels_vi.json
+    - assets/Beep_Sound.mp3
 
   # To add assets to your application, add an assets section, like this:
   # assets:

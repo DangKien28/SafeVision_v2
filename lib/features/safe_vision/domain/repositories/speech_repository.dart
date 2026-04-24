@@ -6,4 +6,10 @@ abstract class SpeechRepository {
   Future<void> stop();
   Future<void> dispose();
   Future<void> setVolume(double volume);
+
+  // STT methods
+  bool get isListening;
+  Future<bool> initializeStt();
+  Future<void> listen({required Function(String) onResult});
+  Future<void> stopListening();
 }

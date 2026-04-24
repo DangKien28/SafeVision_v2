@@ -9,6 +9,7 @@ class Detection {
     required this.right,
     required this.bottom,
     this.trackingId,
+    this.isRushing = false,
   });
 
   final String label;
@@ -18,6 +19,7 @@ class Detection {
   final double right;
   final double bottom;
   final int? trackingId;
+  final bool isRushing;
 
   double get width => max(0, right - left);
   double get height => max(0, bottom - top);

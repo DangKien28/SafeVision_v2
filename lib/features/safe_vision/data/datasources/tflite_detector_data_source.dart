@@ -97,6 +97,11 @@ class TfliteDetectorDataSource {
       return;
     }
 
+    if (type == 'debug') {
+      debugPrint('TfliteWorker Debug: ${message['message']}');
+      return;
+    }
+
     if (type == 'response') {
       final requestId = message['requestId'] as int;
       final completer = _pendingRequests.remove(requestId);
@@ -270,16 +275,29 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
   double inputScale = 1.0;
   int inputZeroPoint = 0;
   final outputBuffers = <int, Object>{};
+  TypedData? inputBuffer;
 
   try {
-    final options = InterpreterOptions()..threads = threads;
-    _configureHardwareDelegateWorker(options, enableAndroidAcceleration, mainSendPort);
+    // Try creating with delegates first
+    try {
+      final options = InterpreterOptions()..threads = threads;
+      _configureHardwareDelegateWorker(
+        options,
+        enableAndroidAcceleration,
+        mainSendPort,
+      );
+      interpreter = Interpreter.fromBuffer(modelBytes, options: options);
+    } catch (e) {
+      mainSendPort.send({
+        'type': 'debug',
+        'message': 'Inference acceleration failed, falling back to CPU: $e',
+      });
+      // Fallback: Pure CPU with clean options
+      final options = InterpreterOptions()..threads = threads;
+      interpreter = Interpreter.fromBuffer(modelBytes, options: options);
+    }
 
-    final initializedInterpreter = Interpreter.fromBuffer(
-      modelBytes,
-      options: options,
-    );
-    interpreter = initializedInterpreter;
+    final initializedInterpreter = interpreter!;
     inputType = initializedInterpreter.getInputTensor(0).type;
     inputShape = initializedInterpreter.getInputTensor(0).shape;
     final inputParams = initializedInterpreter.getInputTensor(0).params;
@@ -309,6 +327,14 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
       (i) => outputTensors[i].params.zeroPoint,
       growable: false,
     );
+
+    final inputSize = inputShape[1] * inputShape[2] * 3;
+    if (inputType == TensorType.uint8 || inputType == TensorType.int8) {
+      inputBuffer = (inputType == TensorType.uint8) ? Uint8List(inputSize) : Int8List(inputSize);
+    } else {
+      inputBuffer = Float32List(inputSize);
+    }
+
     for (var i = 0; i < outputShapes.length; i++) {
       final shape = outputShapes[i];
       outputBuffers[i] = _createOutputBufferForShape(shape, outputTypes[i]);
@@ -350,7 +376,8 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
           .materialize()
           .asUint8List();
 
-      final input = _buildModelInputFromYuv(
+      _fillBufferFromYuv(
+        inputBuffer!,
         {
           'width': width,
           'height': height,
@@ -376,13 +403,13 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
       );
 
       final inputTensor = interpreter!.getInputTensor(0);
-      inputTensor.setTo(input);
+      inputTensor.setTo(inputBuffer!);
       
       final stopwatch = Stopwatch()..start();
       interpreter.invoke();
       stopwatch.stop();
       
-      if (requestId % 30 == 0) {
+      if (requestId % 5 == 0) {
         mainSendPort.send({
           'type': 'debug',
           'message': 'Inference time: ${stopwatch.elapsedMilliseconds}ms',
@@ -473,11 +500,15 @@ void _configureHardwareDelegateWorker(
   }
 
   if (defaultTargetPlatform == TargetPlatform.android && enableAndroidAcceleration) {
-    // Force CPU for better compatibility with this model on this device
-    options.threads = 4;
-    mainSendPort.send({'type': 'debug', 'message': 'Using CPU mode (4 threads)'});
+    try {
+      options.addDelegate(GpuDelegateV2());
+      mainSendPort.send({'type': 'debug', 'message': 'Using GPU (GpuDelegateV2)'});
+    } catch (_) {
+      options.threads = 8;
+      mainSendPort.send({'type': 'debug', 'message': 'Fallback to CPU (8 threads)'});
+    }
   } else {
-    options.threads = 4;
+    options.threads = 8;
   }
 }
 
@@ -1157,7 +1188,11 @@ double _iouWorker(Detection a, Detection b) {
   return intersection / union;
 }
 
-dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
+void _fillBufferFromYuv(
+  TypedData buffer,
+  Map<String, dynamic> params,
+) {
+  final payload = params;
   final width = payload['width'] as int;
   final height = payload['height'] as int;
   final inputWidth = payload['inputWidth'] as int;
@@ -1185,33 +1220,41 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
   final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
 
-  // 1. Create target image directly (Optimized Direct Sampling)
-  final resized = img.Image(width: inputWidth, height: inputHeight);
-  
-  // Calculate sampling factors
   final double scaleX = cropW / inputWidth;
   final double scaleY = cropH / inputHeight;
-  
-  // Pre-calculate rotation constants if needed
-  // For simplicity, we assume the rotation was already handled by the camera stream 
-  // or we can handle it here by adjusting the sampling coordinates.
-  // Given the current structure, we'll keep the logic of sampling from the cropped ROI.
 
+  // Manual rotation and sampling loop
+  // This avoids img.Image and img.copyRotate overhead
   for (var y = 0; y < inputHeight; y++) {
-    final int syBase = (cropY + (y * scaleY).toInt()) * yBytesPerRow;
-    final int uvYBase = ((cropY + (y * scaleY).toInt()) ~/ 2);
-    
     for (var x = 0; x < inputWidth; x++) {
-      final int sx = cropX + (x * scaleX).toInt();
-      
-      final int yp = yBytes[syBase + sx];
-      final int uvIndexU = uvYBase * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
-      final int uvIndexV = uvYBase * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel;
-      
-      final int up = uBytes[uvIndexU];
-      final int vp = vBytes[uvIndexV];
+      // 1. Calculate source coordinates with rotation
+      int sx, sy;
+      if (rotationDegrees == 90) {
+        sx = cropX + (y * scaleX).toInt();
+        sy = cropY + (cropH - 1 - (x * scaleY).toInt());
+      } else if (rotationDegrees == 180) {
+        sx = cropX + (cropW - 1 - (x * scaleX).toInt());
+        sy = cropY + (cropH - 1 - (y * scaleY).toInt());
+      } else if (rotationDegrees == 270) {
+        sx = cropX + (cropW - 1 - (y * scaleX).toInt());
+        sy = cropY + (x * scaleY).toInt();
+      } else {
+        sx = cropX + (x * scaleX).toInt();
+        sy = cropY + (y * scaleY).toInt();
+      }
 
-      // Optimized YUV to RGB (Integer bit-shifting)
+      // 2. Sample YUV
+      final int yIdx = sy * yBytesPerRow + sx;
+      final int uvX = sx ~/ 2;
+      final int uvY = sy ~/ 2;
+      final int uIdx = uvY * uBytesPerRow + uvX * uBytesPerPixel;
+      final int vIdx = uvY * vBytesPerRow + uvX * vBytesPerPixel;
+
+      final int yp = yBytes[yIdx];
+      final int up = uBytes[uIdx];
+      final int vp = vBytes[vIdx];
+
+      // 3. YUV to RGB
       final int c = yp - 16;
       final int d = up - 128;
       final int e = vp - 128;
@@ -1220,47 +1263,27 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
       final int g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
       final int b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
 
-      resized.setPixelRgb(x, y, r, g, b);
-    }
-  }
-
-  // 2. Handle rotation if needed (retaining library usage as requested)
-  var finalImage = resized;
-  if (rotationDegrees != 0) {
-    finalImage = img.copyRotate(resized, angle: rotationDegrees);
-  }
-
-  // 4. Fill Tensor Buffer
-  final inputSize = inputWidth * inputHeight * 3;
-  if (inputType == TensorType.uint8 || inputType == TensorType.int8) {
-    if (inputType == TensorType.uint8) {
-      final flat = Uint8List(inputSize);
-      var cursor = 0;
-      for (final pixel in resized) {
-        flat[cursor++] = ((pixel.r / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
-        flat[cursor++] = ((pixel.g / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
-        flat[cursor++] = ((pixel.b / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+      // 4. Fill Buffer
+      final int pixelIdx = (y * inputWidth + x) * 3;
+      final isUint8 = inputType == TensorType.uint8;
+      final isInt8 = inputType == TensorType.int8;
+      
+      if (!isUint8 && !isInt8) {
+        final bufferFloat = buffer as Float32List;
+        bufferFloat[pixelIdx] = r / 255.0;
+        bufferFloat[pixelIdx + 1] = g / 255.0;
+        bufferFloat[pixelIdx + 2] = b / 255.0;
+      } else if (isUint8) {
+        final bufferUint8 = buffer as Uint8List;
+        bufferUint8[pixelIdx] = ((r / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+        bufferUint8[pixelIdx + 1] = ((g / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+        bufferUint8[pixelIdx + 2] = ((b / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+      } else {
+        final bufferInt8 = buffer as Int8List;
+        bufferInt8[pixelIdx] = ((r / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+        bufferInt8[pixelIdx + 1] = ((g / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+        bufferInt8[pixelIdx + 2] = ((b / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
       }
-      return flat;
-    } else {
-      final flat = Int8List(inputSize);
-      var cursor = 0;
-      for (final pixel in resized) {
-        flat[cursor++] = ((pixel.r / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-        flat[cursor++] = ((pixel.g / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-        flat[cursor++] = ((pixel.b / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
-      }
-      return flat;
     }
-  } else {
-    // float16 or float32 models use Float32List
-    final flat = Float32List(inputSize);
-    var cursor = 0;
-    for (final pixel in finalImage) {
-      flat[cursor++] = pixel.r / 255.0;
-      flat[cursor++] = pixel.g / 255.0;
-      flat[cursor++] = pixel.b / 255.0;
-    }
-    return flat;
   }
 }

@@ -41,3 +41,7 @@ class SafeVisionZoomChanged extends SafeVisionEvent {
   const SafeVisionZoomChanged(this.zoom);
   final double zoom;
 }
+
+class VoiceCommandStarted extends SafeVisionEvent {
+  const VoiceCommandStarted();
+}

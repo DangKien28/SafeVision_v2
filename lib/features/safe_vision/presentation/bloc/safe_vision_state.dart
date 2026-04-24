@@ -15,6 +15,7 @@ class SafeVisionState {
     required this.errorMessage,
     required this.volume,
     required this.zoomLevel,
+    required this.isListening,
   });
 
   factory SafeVisionState.initial() {
@@ -29,6 +30,7 @@ class SafeVisionState {
       errorMessage: null,
       volume: 1.0,
       zoomLevel: 1.0,
+      isListening: false,
     );
   }
 
@@ -42,6 +44,7 @@ class SafeVisionState {
   final String? errorMessage;
   final double volume;
   final double zoomLevel;
+  final bool isListening;
 
   /// Pass [clearError] = true to explicitly clear an existing error.
   /// Omitting [errorMessage] now preserves the existing value, unlike before.
@@ -56,6 +59,7 @@ class SafeVisionState {
     String? errorMessage,
     double? volume,
     double? zoomLevel,
+    bool? isListening,
     bool clearError = false,
   }) {
     return SafeVisionState(
@@ -69,6 +73,7 @@ class SafeVisionState {
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       volume: volume ?? this.volume,
       zoomLevel: zoomLevel ?? this.zoomLevel,
+      isListening: isListening ?? this.isListening,
     );
   }
 }
