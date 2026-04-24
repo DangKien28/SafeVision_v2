@@ -9,20 +9,25 @@ class DetectionPainter extends CustomPainter {
 
   final List<Detection> detections;
 
+  static const int _maxBoxes = 6;
+
   @override
   void paint(Canvas canvas, Size size) {
     final boxPaint = Paint()
       ..color = const Color(0xFF00FFB3)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 2.5;
 
-    for (final detection in detections.take(8)) {
+    for (final detection in detections.take(_maxBoxes)) {
       final rect = Rect.fromLTRB(
         detection.left * size.width,
         detection.top * size.height,
         detection.right * size.width,
         detection.bottom * size.height,
       );
+      if (rect.width < 20 || rect.height < 20) {
+        continue;
+      }
       canvas.drawRect(rect, boxPaint);
 
       final label =
@@ -52,6 +57,18 @@ class DetectionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DetectionPainter oldDelegate) {
-    return oldDelegate.detections != detections;
+    // Return true if the list length differs
+    if (oldDelegate.detections.length != detections.length) {
+      return true;
+    }
+    
+    // Check if any detection has changed
+    for (var i = 0; i < detections.length; i++) {
+      if (oldDelegate.detections[i] != detections[i]) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 }

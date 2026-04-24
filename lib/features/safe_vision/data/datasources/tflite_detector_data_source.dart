@@ -88,11 +88,6 @@ class TfliteDetectorDataSource {
       return;
     }
 
-    if (type == 'debug') {
-      debugPrint('TfliteDetector ${message['message']}');
-      return;
-    }
-
     if (type == 'fatal') {
       if (!(_loadCompleter?.isCompleted ?? true)) {
         _loadCompleter?.completeError(message['error'] ?? 'worker init failed');
@@ -115,9 +110,6 @@ class TfliteDetectorDataSource {
       }
 
       final rawDetections = message['detections'] as List<Object?>? ?? const [];
-      debugPrint(
-        'TfliteDetector response request=$requestId error=$error count=${rawDetections.length}',
-      );
       final detections = rawDetections
           .whereType<Map<Object?, Object?>>()
           .map(
@@ -315,19 +307,6 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
       (i) => outputTensors[i].params.zeroPoint,
       growable: false,
     );
-    mainSendPort.send({
-      'type': 'debug',
-      'message':
-          'inputShape=$inputShape inputType=$inputType outputs=${outputShapes.length}',
-    });
-    for (var i = 0; i < outputShapes.length; i++) {
-      mainSendPort.send({
-        'type': 'debug',
-        'message':
-            'output[$i] shape=${outputShapes[i]} type=${outputTypes[i]} scale=${outputScales[i]} zeroPoint=${outputZeroPoints[i]}',
-      });
-    }
-
     for (var i = 0; i < outputShapes.length; i++) {
       final shape = outputShapes[i];
       outputBuffers[i] = _createOutputBufferForShape(shape, outputTypes[i]);
@@ -670,7 +649,7 @@ List<Detection> _parseDetectionsFromBuffer({
     }
   }
 
-  final filtered = _nonMaxSuppressionWorker(detections, iouThreshold: 0.30);
+  final filtered = _nonMaxSuppressionWorker(detections, iouThreshold: 0.15);
   if (filtered.isEmpty && topCandidate != null && topCandidateScore > threshold) {
     filtered.add(topCandidate);
   }
@@ -1019,46 +998,61 @@ Detection _toDetectionWorker({
   required double roiRight,
   required double roiBottom,
 }) {
-  final scaleW = max(x.abs(), w.abs()) > 2.0 ? inW.toDouble() : 1.0;
-  final scaleH = max(y.abs(), h.abs()) > 2.0 ? inH.toDouble() : 1.0;
+  // x, y, w, h come from model in range [0, 1] or pixel space
+  double centerX = x;
+  double centerY = y;
+  double width = w.abs();
+  double height = h.abs();
 
-  final centerX = x / scaleW;
-  final centerY = y / scaleH;
-  final width = w.abs() / scaleW;
-  final height = h.abs() / scaleH;
+  // If values are large, they're in pixel space - convert to normalized
+  if (centerX > 1.0 || centerY > 1.0) {
+    centerX = centerX / inW;
+    centerY = centerY / inH;
+    width = width / inW;
+    height = height / inH;
+  }
 
-  final leftModel = (centerX - width / 2).clamp(0.0, 1.0);
-  final topModel = (centerY - height / 2).clamp(0.0, 1.0);
-  final rightModel = (centerX + width / 2).clamp(0.0, 1.0);
-  final bottomModel = (centerY + height / 2).clamp(0.0, 1.0);
+  // Calculate bbox in model space
+  double leftModel = centerX - width / 2;
+  double topModel = centerY - height / 2;
+  double rightModel = centerX + width / 2;
+  double bottomModel = centerY + height / 2;
 
-  final roiWidthNorm = (roiRight - roiLeft).clamp(0.0, 1.0);
-  final roiHeightNorm = (roiBottom - roiTop).clamp(0.0, 1.0);
-  final rawCropW = max(1.0, roiWidthNorm * frameW);
-  final rawCropH = max(1.0, roiHeightNorm * frameH);
+  // Calculate effective crop dimensions with rotation
+  final roiWidth = roiRight - roiLeft;
+  final roiHeight = roiBottom - roiTop;
+  final cropW = max(1.0, roiWidth * frameW);
+  final cropH = max(1.0, roiHeight * frameH);
 
   final deg = ((rotationDegrees % 360) + 360) % 360;
   final isRotated90 = deg == 90 || deg == 270;
-  final effectiveCropW = isRotated90 ? rawCropH : rawCropW;
-  final effectiveCropH = isRotated90 ? rawCropW : rawCropH;
+  final effectiveCropW = isRotated90 ? cropH : cropW;
+  final effectiveCropH = isRotated90 ? cropW : cropH;
 
+  // Reverse letterbox padding
   final letterboxScale = min(inW / effectiveCropW, inH / effectiveCropH);
   final scaledW = effectiveCropW * letterboxScale;
   final scaledH = effectiveCropH * letterboxScale;
   final padX = (inW - scaledW) / 2.0;
   final padY = (inH - scaledH) / 2.0;
 
-  final leftPx = leftModel * inW;
-  final topPx = topModel * inH;
-  final rightPx = rightModel * inW;
-  final bottomPx = bottomModel * inH;
+  // Remove letterbox padding
+  final leftUnpad = (leftModel * inW - padX) / letterboxScale;
+  final topUnpad = (topModel * inH - padY) / letterboxScale;
+  final rightUnpad = (rightModel * inW - padX) / letterboxScale;
+  final bottomUnpad = (bottomModel * inH - padY) / letterboxScale;
 
-  final left = (((leftPx - padX) / letterboxScale) / effectiveCropW).clamp(0.0, 1.0);
-  final top = (((topPx - padY) / letterboxScale) / effectiveCropH).clamp(0.0, 1.0);
-  final right =
-      (((rightPx - padX) / letterboxScale) / effectiveCropW).clamp(0.0, 1.0);
-  final bottom =
-      (((bottomPx - padY) / letterboxScale) / effectiveCropH).clamp(0.0, 1.0);
+  // Convert from crop space to normalized crop space [0, 1]
+  final leftCropNorm = leftUnpad / effectiveCropW;
+  final topCropNorm = topUnpad / effectiveCropH;
+  final rightCropNorm = rightUnpad / effectiveCropW;
+  final bottomCropNorm = bottomUnpad / effectiveCropH;
+
+  // Add ROI offset to map back to full frame
+  final left = roiLeft + leftCropNorm * roiWidth;
+  final top = roiTop + topCropNorm * roiHeight;
+  final right = roiLeft + rightCropNorm * roiWidth;
+  final bottom = roiTop + bottomCropNorm * roiHeight;
 
   final label = classIndex >= 0 && classIndex < labels.length
       ? labels[classIndex]

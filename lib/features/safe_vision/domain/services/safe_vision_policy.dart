@@ -37,10 +37,6 @@ class SafeVisionPolicy {
     List<Detection> detections,
     Map<String, SafeVisionLabelMetadata> metadata,
   ) {
-    if (mode == SafeVisionMode.tutorial) {
-      return const <Detection>[];
-    }
-
     final filtered = detections.where((detection) {
       final bucket = metadata[_normalizeLabel(detection.label)]?.bucket ??
           SafeVisionLabelBucket.recognition;
@@ -55,8 +51,9 @@ class SafeVisionPolicy {
     }).toList(growable: false);
 
     filtered.sort((a, b) {
-      final dangerCompare = _dangerPriority(b, metadata)
-          .compareTo(_dangerPriority(a, metadata));
+      final dangerCompare = _dangerPriority(b, metadata).compareTo(
+        _dangerPriority(a, metadata),
+      );
       if (dangerCompare != 0) {
         return dangerCompare;
       }
@@ -76,27 +73,25 @@ class SafeVisionPolicy {
     Map<String, SafeVisionLabelMetadata> metadata,
   ) {
     switch (mode) {
-      case SafeVisionMode.tutorial:
-        return 'Chế độ hướng dẫn: vuốt trái/phải để đổi chế độ';
       case SafeVisionMode.indoor:
         if (detections.isEmpty) {
-          return 'Quét để tìm vật dụng quanh bạn';
+          return 'Quet de tim vat dung quanh ban';
         }
         final top = detections.first;
         final percent = (top.score * 100).toStringAsFixed(0);
-        return 'Tìm thấy: ${localizedLabel(top, metadata)} ($percent%)';
+        return 'Tim thay: ${localizedLabel(top, metadata)} ($percent%)';
       case SafeVisionMode.outdoor:
         final urgentDetections = detections.where((detection) {
           return isInRiskZone(detection) || shouldAlwaysWarn(detection);
         }).toList(growable: false);
         if (urgentDetections.isEmpty) {
           return detections.isEmpty
-              ? 'Không có vật cản nguy hiểm'
-              : 'Đã nhận diện vật thể, chưa có vật cản vào vùng nguy hiểm';
+              ? 'Khong co vat can nguy hiem'
+              : 'Da nhan dien vat the, chua co vat can vao vung nguy hiem';
         }
         final top = urgentDetections.first;
         final percent = (top.score * 100).toStringAsFixed(0);
-        return 'Cảnh báo: ${localizedLabel(top, metadata)} ($percent%)';
+        return 'Canh bao: ${localizedLabel(top, metadata)} ($percent%)';
     }
   }
 
@@ -105,7 +100,7 @@ class SafeVisionPolicy {
     required List<Detection> detections,
     required Map<String, SafeVisionLabelMetadata> metadata,
   }) {
-    if (mode == SafeVisionMode.tutorial || detections.isEmpty) {
+    if (detections.isEmpty) {
       return const SafeVisionSpeechPayload(
         message: '',
         warningKeys: <String>{},
@@ -125,16 +120,18 @@ class SafeVisionPolicy {
 
       final items = <_BucketItem>[];
       grouped.forEach((rawLabel, count) {
-        items.add(_BucketItem(
-          rawLabel: rawLabel,
-          viLabel: localizedLabel(firstByLabel[rawLabel]!, metadata),
-          count: count,
-        ));
+        items.add(
+          _BucketItem(
+            rawLabel: rawLabel,
+            viLabel: localizedLabel(firstByLabel[rawLabel]!, metadata),
+            count: count,
+          ),
+        );
       });
       items.sort((a, b) => b.count.compareTo(a.count));
 
       return SafeVisionSpeechPayload(
-        message: 'Tìm thấy ${_joinBucketPhrases(items)}.',
+        message: 'Tim thay ${_joinBucketPhrases(items)}.',
         warningKeys: <String>{},
         messageKey:
             'indoor:${items.map((e) => '${e.count}${e.rawLabel}').join(',')}',
@@ -188,13 +185,13 @@ class SafeVisionPolicy {
 
     final chunks = <String>[];
     if (warningItems.isNotEmpty) {
-      chunks.add('Cảnh báo có ${_joinBucketPhrases(warningItems)}.');
+      chunks.add('Canh bao co ${_joinBucketPhrases(warningItems)}.');
     }
     if (instructionItems.isNotEmpty) {
-      chunks.add('Chú ý: ${_joinBucketPhrases(instructionItems)}.');
+      chunks.add('Chu y: ${_joinBucketPhrases(instructionItems)}.');
     }
     if (recognitionItems.isNotEmpty) {
-      chunks.add('Phía trước có ${_joinBucketPhrases(recognitionItems)}.');
+      chunks.add('Phia truoc co ${_joinBucketPhrases(recognitionItems)}.');
     }
 
     final messageKeyParts = <String>[
@@ -211,8 +208,10 @@ class SafeVisionPolicy {
   }
 
   static RiskZone getRiskZone(Detection detection) {
-    if (shouldAlwaysWarn(detection)) return RiskZone.danger;
-    
+    if (shouldAlwaysWarn(detection)) {
+      return RiskZone.danger;
+    }
+
     if (detection.estimatedDistance < 2.5 || detection.bottom >= 0.8) {
       return RiskZone.danger;
     }
@@ -266,10 +265,10 @@ class SafeVisionPolicy {
       return phrases.first;
     }
     if (phrases.length == 2) {
-      return '${phrases[0]} và ${phrases[1]}';
+      return '${phrases[0]} va ${phrases[1]}';
     }
     final head = phrases.sublist(0, phrases.length - 1).join(', ');
-    return '$head và ${phrases.last}';
+    return '$head va ${phrases.last}';
   }
 }
 

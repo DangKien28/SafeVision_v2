@@ -28,17 +28,26 @@ class TrackedObject {
 
 class IoUObjectTracker {
   IoUObjectTracker({
-    this.iouThreshold = 0.3,
-    this.maxMissedFrames = 5,
-    this.minHitCount = 3,
+    this.iouThreshold = 0.15,
+    this.maxMissedFrames = 1,
+    this.minHitCount = 1,
+    this.positionSmoothing = 0.5,
+    this.scoreSmoothing = 0.5,
   });
 
   final double iouThreshold;
   final int maxMissedFrames;
   final int minHitCount;
+  final double positionSmoothing;
+  final double scoreSmoothing;
 
   final Map<int, TrackedObject> _tracks = {};
   int _nextId = 1;
+
+  /// Reset all tracks (remove all tracked objects)
+  void reset() {
+    _tracks.clear();
+  }
 
   List<Detection> process(List<Detection> detections) {
     final updatedDetections = <Detection>[];
@@ -70,25 +79,36 @@ class IoUObjectTracker {
       }
 
       if (bestMatch != null) {
-        // Update existing track
-        bestMatch.left = detection.left;
-        bestMatch.top = detection.top;
-        bestMatch.right = detection.right;
-        bestMatch.bottom = detection.bottom;
+        bestMatch.left = _lerp(bestMatch.left, detection.left, positionSmoothing);
+        bestMatch.top = _lerp(bestMatch.top, detection.top, positionSmoothing);
+        bestMatch.right = _lerp(
+          bestMatch.right,
+          detection.right,
+          positionSmoothing,
+        );
+        bestMatch.bottom = _lerp(
+          bestMatch.bottom,
+          detection.bottom,
+          positionSmoothing,
+        );
         bestMatch.missedFrames = 0;
         bestMatch.hitCount++;
-        bestMatch.smoothedScore = (bestMatch.smoothedScore * 0.5) + (detection.score * 0.5);
+        bestMatch.smoothedScore = _lerp(
+          bestMatch.smoothedScore,
+          detection.score,
+          scoreSmoothing,
+        );
         matchedTrackIds.add(bestMatch.id);
 
         if (bestMatch.hitCount >= minHitCount) {
           updatedDetections.add(
             Detection(
-              label: detection.label,
+              label: bestMatch.label,
               score: bestMatch.smoothedScore,
-              left: detection.left,
-              top: detection.top,
-              right: detection.right,
-              bottom: detection.bottom,
+              left: bestMatch.left,
+              top: bestMatch.top,
+              right: bestMatch.right,
+              bottom: bestMatch.bottom,
               trackingId: bestMatch.id,
             ),
           );
@@ -111,12 +131,12 @@ class IoUObjectTracker {
         if (newTrack.hitCount >= minHitCount) {
           updatedDetections.add(
             Detection(
-              label: detection.label,
+              label: newTrack.label,
               score: newTrack.smoothedScore,
-              left: detection.left,
-              top: detection.top,
-              right: detection.right,
-              bottom: detection.bottom,
+              left: newTrack.left,
+              top: newTrack.top,
+              right: newTrack.right,
+              bottom: newTrack.bottom,
               trackingId: newId,
             ),
           );
@@ -144,30 +164,34 @@ class IoUObjectTracker {
   }
 
   double _calculateIoU(
-    double boxA_left,
-    double boxA_top,
-    double boxA_right,
-    double boxA_bottom,
-    double boxB_left,
-    double boxB_top,
-    double boxB_right,
-    double boxB_bottom,
+    double boxALeft,
+    double boxATop,
+    double boxARight,
+    double boxABottom,
+    double boxBLeft,
+    double boxBTop,
+    double boxBRight,
+    double boxBBottom,
   ) {
-    final xA = max(boxA_left, boxB_left);
-    final yA = max(boxA_top, boxB_top);
-    final xB = min(boxA_right, boxB_right);
-    final yB = min(boxA_bottom, boxB_bottom);
+    final xA = max(boxALeft, boxBLeft);
+    final yA = max(boxATop, boxBTop);
+    final xB = min(boxARight, boxBRight);
+    final yB = min(boxABottom, boxBBottom);
 
     final interArea = max(0.0, xB - xA) * max(0.0, yB - yA);
 
-    final boxAArea = max(0.0, boxA_right - boxA_left) *
-        max(0.0, boxA_bottom - boxA_top);
-    final boxBArea = max(0.0, boxB_right - boxB_left) *
-        max(0.0, boxB_bottom - boxB_top);
+    final boxAArea = max(0.0, boxARight - boxALeft) *
+        max(0.0, boxABottom - boxATop);
+    final boxBArea = max(0.0, boxBRight - boxBLeft) *
+        max(0.0, boxBBottom - boxBTop);
 
     final unionArea = boxAArea + boxBArea - interArea;
 
     if (unionArea <= 0) return 0.0;
     return interArea / unionArea;
+  }
+
+  double _lerp(double current, double target, double t) {
+    return current + (target - current) * t;
   }
 }

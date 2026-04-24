@@ -18,7 +18,7 @@ import 'safe_vision_event.dart';
 import 'safe_vision_state.dart';
 
 class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
-  static const int _frameThrottleMs = 100;
+  static const int _frameThrottleMs = 67;
 
   SafeVisionBloc({
     required InitializeVisionUseCase initializeVisionUseCase,
@@ -55,7 +55,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   DateTime _lastFpsCalculationTime = DateTime.now();
   int _frameCount = 0;
   double _currentFps = 0.0;
-  double _confidenceThreshold = 0.40;
+  final double _confidenceThreshold = 0.40;
 
   Future<void> _onStarted(
     SafeVisionStarted event,
@@ -72,7 +72,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         state.copyWith(
           isInitializing: false,
           cameraController: controller,
-          statusText: 'Safe Vision đang hoạt động',
+          statusText: 'Safe Vision dang hoat dong',
           isFrontCamera:
               _visionRepository.currentLensDirection ==
               CameraLensDirection.front,
@@ -80,14 +80,14 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         ),
       );
       await _speakMessageUseCase(
-        'Safe Vision đã sẵn sàng. Hãy đưa camera hướng về phía trước.',
+        'Safe Vision da san sang. Hay dua camera huong ve phia truoc.',
         interrupt: false,
       );
     } catch (e) {
       emit(
         state.copyWith(
           isInitializing: false,
-          statusText: 'Không thể khởi tạo: $e',
+          statusText: 'Khong the khoi tao: $e',
           errorMessage: e.toString(),
         ),
       );
@@ -112,6 +112,12 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         event.image,
         confidenceThreshold: _confidenceThreshold,
       );
+      
+      // If no detections, clear tracker to remove old boxes immediately
+      if (rawDetections.isEmpty) {
+        _objectTracker.reset();
+      }
+      
       final trackedDetections = _objectTracker.process(rawDetections);
       final detections = SafeVisionPolicy.filterDetectionsForMode(
         state.mode,
@@ -144,7 +150,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       debugPrint('$st');
       emit(
         state.copyWith(
-          statusText: 'Lỗi xử lý khung hình: $e',
+          statusText: 'Loi xu ly khung hinh: $e',
           errorMessage: e.toString(),
         ),
       );
@@ -161,6 +167,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       return;
     }
 
+    _objectTracker.reset();
     final modeDetections = SafeVisionPolicy.filterDetectionsForMode(
       event.mode,
       state.rawDetections,
@@ -179,18 +186,12 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       ),
     );
 
+    _audioManager.reset();
     switch (event.mode) {
       case SafeVisionMode.outdoor:
-        _audioManager.reset();
-        await _speakMessageUseCase('Chế độ di chuyển ngoài trời.');
+        await _speakMessageUseCase('Che do di chuyen ngoai troi.');
       case SafeVisionMode.indoor:
-        _audioManager.reset();
-        await _speakMessageUseCase('Chế độ tìm vật trong nhà.');
-      case SafeVisionMode.tutorial:
-        _audioManager.reset();
-        await _speakMessageUseCase(
-          'Chế độ hướng dẫn. Vuốt qua trái hoặc phải để chuyển chế độ.',
-        );
+        await _speakMessageUseCase('Che do tim vat trong nha.');
     }
   }
 
@@ -214,6 +215,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       _isProcessingFrame = false;
       _lastFrameAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
       _audioManager.reset();
+      _objectTracker.reset();
 
       final controller = await _visionRepository.switchCamera();
       await _visionRepository.startImageStream(_enqueueFrame);
@@ -225,22 +227,20 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
           isInitializing: false,
           cameraController: controller,
           isFrontCamera: isFront,
-          statusText: isFront
-              ? 'Đang dùng camera trước'
-              : 'Đang dùng camera sau',
+          statusText: isFront ? 'Dang dung camera truoc' : 'Dang dung camera sau',
         ),
       );
 
       await _speakMessageUseCase(
         isFront
-            ? 'Đã chuyển sang camera trước.'
-            : 'Đã chuyển sang camera sau.',
+            ? 'Da chuyen sang camera truoc.'
+            : 'Da chuyen sang camera sau.',
       );
     } catch (e) {
       emit(
         state.copyWith(
           isInitializing: false,
-          statusText: 'Không thể đổi camera: $e',
+          statusText: 'Khong the doi camera: $e',
           errorMessage: e.toString(),
         ),
       );
@@ -262,8 +262,6 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     _isProcessingFrame = true;
     add(CameraFrameReceived(image));
   }
-
-
 
   Future<void> _loadTtsMetadata() async {
     if (_labelMetadata.isNotEmpty) {
@@ -304,7 +302,10 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         }
       });
 
-      _labelMetadata = mapped.isEmpty ? _defaultLabelMetadata() : mapped;
+      _labelMetadata = {
+        ..._defaultLabelMetadata(),
+        ...mapped,
+      };
     } catch (_) {
       _labelMetadata = _defaultLabelMetadata();
     }
@@ -313,75 +314,127 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
   Map<String, SafeVisionLabelMetadata> _defaultLabelMetadata() {
     return const {
       'car': SafeVisionLabelMetadata(
-        viLabel: 'ô tô',
+        viLabel: 'o to',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'xe': SafeVisionLabelMetadata(
-        viLabel: 'ô tô',
+        viLabel: 'o to',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'ho': SafeVisionLabelMetadata(
-        viLabel: 'hố',
+        viLabel: 'ho',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'hole': SafeVisionLabelMetadata(
-        viLabel: 'hố',
+        viLabel: 'ho',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'lua': SafeVisionLabelMetadata(
-        viLabel: 'lửa',
+        viLabel: 'lua',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'fire': SafeVisionLabelMetadata(
-        viLabel: 'lửa',
+        viLabel: 'lua',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'cau_thang': SafeVisionLabelMetadata(
-        viLabel: 'cầu thang',
+        viLabel: 'cau thang',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'stairs': SafeVisionLabelMetadata(
-        viLabel: 'cầu thang',
+        viLabel: 'cau thang',
         bucket: SafeVisionLabelBucket.warning,
       ),
       'door': SafeVisionLabelMetadata(
-        viLabel: 'cửa ra vào',
+        viLabel: 'cua ra vao',
         bucket: SafeVisionLabelBucket.instruction,
       ),
       'cua': SafeVisionLabelMetadata(
-        viLabel: 'cửa ra vào',
+        viLabel: 'cua ra vao',
         bucket: SafeVisionLabelBucket.instruction,
       ),
       'person': SafeVisionLabelMetadata(
-        viLabel: 'người',
+        viLabel: 'nguoi',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'nguoi_di_bo': SafeVisionLabelMetadata(
-        viLabel: 'người đi bộ',
+        viLabel: 'nguoi di bo',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'balo': SafeVisionLabelMetadata(
-        viLabel: 'ba lô',
+        viLabel: 'ba lo',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      'vi': SafeVisionLabelMetadata(
+        viLabel: 'vi',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'ban': SafeVisionLabelMetadata(
-        viLabel: 'bàn',
+        viLabel: 'ban',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'ghe': SafeVisionLabelMetadata(
-        viLabel: 'ghế',
+        viLabel: 'ghe',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'cay': SafeVisionLabelMetadata(
-        viLabel: 'cây',
+        viLabel: 'cay',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'dien_thoai': SafeVisionLabelMetadata(
-        viLabel: 'điện thoại',
+        viLabel: 'dien thoai',
         bucket: SafeVisionLabelBucket.recognition,
       ),
       'laptop': SafeVisionLabelMetadata(
         viLabel: 'laptop',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      'den_giao_thong': SafeVisionLabelMetadata(
+        viLabel: 'den giao thong',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      'mep_duong': SafeVisionLabelMetadata(
+        viLabel: 'mep duong',
+        bucket: SafeVisionLabelBucket.warning,
+      ),
+      'thung_rac': SafeVisionLabelMetadata(
+        viLabel: 'thung rac',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '1k': SafeVisionLabelMetadata(
+        viLabel: 'mot nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '2k': SafeVisionLabelMetadata(
+        viLabel: 'hai nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '5k': SafeVisionLabelMetadata(
+        viLabel: 'nam nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '10k': SafeVisionLabelMetadata(
+        viLabel: 'muoi nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '20k': SafeVisionLabelMetadata(
+        viLabel: 'hai muoi nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '50k': SafeVisionLabelMetadata(
+        viLabel: 'nam muoi nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '100k': SafeVisionLabelMetadata(
+        viLabel: 'mot tram nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '200k': SafeVisionLabelMetadata(
+        viLabel: 'hai tram nghin',
+        bucket: SafeVisionLabelBucket.recognition,
+      ),
+      '500k': SafeVisionLabelMetadata(
+        viLabel: 'nam tram nghin',
         bucket: SafeVisionLabelBucket.recognition,
       ),
     };

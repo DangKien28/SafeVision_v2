@@ -57,4 +57,27 @@ class Detection {
         return label.replaceAll('_', ' ');
     }
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Detection &&
+        other.label == label &&
+        other.score == score &&
+        other.left == left &&
+        other.top == top &&
+        other.right == right &&
+        other.bottom == bottom &&
+        other.trackingId == trackingId;
+  }
+
+  @override
+  int get hashCode =>
+      label.hashCode ^
+      score.hashCode ^
+      left.hashCode ^
+      top.hashCode ^
+      right.hashCode ^
+      bottom.hashCode ^
+      trackingId.hashCode;
 }

@@ -37,12 +37,11 @@ class BottomActionBar extends StatelessWidget {
                       foregroundColor:
                           m == mode ? const Color(0xFF102019) : Colors.white,
                     ),
-                    child: Text(
-                      switch (m) {
-                        SafeVisionMode.outdoor => 'Ngoai troi',
-                        SafeVisionMode.indoor => 'Trong nha',
-                        SafeVisionMode.tutorial => 'Huong dan',
-                      },
+                      child: Text(
+                        switch (m) {
+                          SafeVisionMode.outdoor => 'Ngoai troi',
+                          SafeVisionMode.indoor => 'Trong nha',
+                        },
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

@@ -2,6 +2,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../domain/entities/detection.dart';
+import '../../domain/entities/safe_vision_mode.dart';
 import '../bloc/safe_vision_bloc.dart';
 import '../bloc/safe_vision_event.dart';
 import '../bloc/safe_vision_state.dart';
@@ -43,80 +45,12 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
           },
           child: Stack(
             children: [
-              Positioned.fill(
-                child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  buildWhen: (previous, current) =>
-                      previous.isInitializing != current.isInitializing ||
-                      previous.cameraController != current.cameraController,
-                  builder: (context, state) {
-                    final controller = state.cameraController;
-
-                    if (state.isInitializing || !_isPreviewReady(controller)) {
-                      return const LoadingPanel();
-                    }
-
-                    return LayoutBuilder(
-                      builder: (context, constraints) {
-                        final previewAspectRatio =
-                            1 / controller!.value.aspectRatio;
-                        final viewportWidth = constraints.maxWidth;
-                        final viewportHeight =
-                            viewportWidth / previewAspectRatio;
-
-                        return Center(
-                          child: SizedBox(
-                            width: viewportWidth,
-                            height: viewportHeight,
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: RepaintBoundary(
-                                    child: CameraPreview(controller),
-                                  ),
-                                ),
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    child: BlocBuilder<SafeVisionBloc,
-                                        SafeVisionState>(
-                                      buildWhen: (previous, current) =>
-                                          previous.detections !=
-                                          current.detections,
-                                      builder: (context, state) {
-                                        return RepaintBoundary(
-                                          child: CustomPaint(
-                                            painter: DetectionPainter(
-                                              state.detections,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
+              const Positioned.fill(child: _CameraStage()),
               Positioned(
                 top: 12,
                 left: 12,
                 right: 110,
-                child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  buildWhen: (previous, current) =>
-                      previous.statusText != current.statusText ||
-                      previous.mode != current.mode,
-                  builder: (context, state) {
-                    return TopStatusBar(
-                      mode: state.mode,
-                      statusText: state.statusText,
-                    );
-                  },
-                ),
+                child: const _StatusLayer(),
               ),
               Positioned(
                 top: 16,
@@ -204,10 +138,87 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
     );
   }
 
-  bool _isPreviewReady(CameraController? controller) {
-    if (controller == null) {
-      return false;
-    }
-    return controller.value.isInitialized;
+}
+
+class _CameraStage extends StatelessWidget {
+  const _CameraStage();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<SafeVisionBloc, SafeVisionState, (bool, CameraController?)>(
+      selector: (state) => (state.isInitializing, state.cameraController),
+      builder: (context, cameraState) {
+        final isInitializing = cameraState.$1;
+        final controller = cameraState.$2;
+
+        if (isInitializing || controller == null || !controller.value.isInitialized) {
+          return const LoadingPanel();
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final previewAspectRatio = 1 / controller.value.aspectRatio;
+            final viewportWidth = constraints.maxWidth;
+            final viewportHeight = viewportWidth / previewAspectRatio;
+
+            return Center(
+              child: SizedBox(
+                width: viewportWidth,
+                height: viewportHeight,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: CameraPreview(controller),
+                      ),
+                    ),
+                    const Positioned.fill(
+                      child: IgnorePointer(
+                        child: RepaintBoundary(
+                          child: _DetectionOverlay(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _DetectionOverlay extends StatelessWidget {
+  const _DetectionOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<SafeVisionBloc, SafeVisionState, List<Detection>>(
+      selector: (state) => state.detections,
+      builder: (context, detections) {
+        return CustomPaint(
+          painter: DetectionPainter(detections),
+        );
+      },
+    );
+  }
+}
+
+class _StatusLayer extends StatelessWidget {
+  const _StatusLayer();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<SafeVisionBloc, SafeVisionState, (SafeVisionMode, String)>(
+      selector: (state) => (state.mode, state.statusText),
+      builder: (context, status) {
+        return TopStatusBar(
+          mode: status.$1,
+          statusText: status.$2,
+        );
+      },
+    );
   }
 }
