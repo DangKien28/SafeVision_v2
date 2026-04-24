@@ -11,7 +11,7 @@ Nếu các file phase trước cho bạn bức tranh tổng thể, thì file nà
 1. Đi từ `main.dart` đến `app.dart` để hiểu điểm vào và cách dựng dependency.
 2. Sang `SafeVisionPage` và `SafeVisionBloc` để hiểu UI và điều phối.
 3. Đọc domain để hiểu luật nghiệp vụ.
-4. Đọc data layer để hiểu pipeline camera, ML, TFLite, TTS.
+4. Đọc data layer để hiểu pipeline camera, TFLite và TTS.
 5. Cuối cùng ghép lại bằng luồng runtime.
 
 ## 1. Điểm vào ứng dụng
@@ -48,17 +48,13 @@ Những việc đó đều được đẩy sang các lớp phía sau.
 
 `SafeVisionApp` là nơi nối giữa “hạ tầng” và “màn hình”.
 
-Nếu không có class này, các object như camera, tracker, detector, TTS sẽ không có nơi được tạo và đưa xuống UI một cách có kiểm soát.
+Nếu không có class này, các object như camera, detector và TTS sẽ không có nơi được tạo và đưa xuống UI một cách có kiểm soát.
 
 #### Các object được tạo ở đây
 
 ##### `CameraDataSource`
 
 Tạo và quản lý camera thật trên thiết bị.
-
-##### `MlKitTrackerDataSource`
-
-Dùng để track vật thể và tìm vùng ROI của người.
 
 ##### `TfliteDetectorDataSource`
 
@@ -70,7 +66,7 @@ Phát âm tiếng Việt.
 
 ##### `VisionRepositoryImpl`
 
-Ghép camera + tracker + detector thành một pipeline nhận diện hoàn chỉnh.
+Ghép camera + TFLite thành một API sạch cho domain.
 
 ##### `SpeechRepositoryImpl`
 
@@ -84,7 +80,14 @@ Tách nghiệp vụ thành các hành động nhỏ, rõ nghĩa.
 
 Điều phối toàn bộ trạng thái và event của màn hình Safe Vision.
 
-#### Vì sao initState() tạo object thay vì build()
+#### `IoUObjectTracker` và `AudioManager`
+
+Hai object này không được tạo ở `app.dart` mà được Bloc tạo nội bộ.
+
+- `IoUObjectTracker` giữ tracking id ổn định qua nhiều frame.
+- `AudioManager` điều tiết nhịp đọc TTS theo tracking id, priority và cooldown.
+
+#### Vì sao `initState()` tạo object thay vì `build()`
 
 Vì những object này cần sống lâu hơn một lần build.
 
@@ -142,10 +145,10 @@ Khi vuốt:
 
 Mỗi `BlocBuilder` ở page chỉ nghe một phần state:
 
-- một cái nghe camera controller và isInitializing
+- một cái nghe camera controller và `isInitializing`
 - một cái nghe detections
-- một cái nghe statusText và mode
-- một cái nghe isFrontCamera
+- một cái nghe `statusText` và `mode`
+- một cái nghe `isFrontCamera`
 
 #### Vì sao chia nhỏ
 
@@ -162,7 +165,7 @@ Ví dụ:
 #### Nhiệm vụ
 
 - Hiển thị mode hiện tại.
-- Hiển thị statusText.
+- Hiển thị `statusText`.
 
 #### Nó dùng gì
 
@@ -298,9 +301,10 @@ Thông báo lỗi nếu có sự cố.
 1. Nhận event.
 2. Gọi use case hoặc repository.
 3. Nhận kết quả.
-4. Dùng policy để lọc hoặc tạo câu nói.
-5. Cập nhật state.
-6. UI tự rebuild theo state mới.
+4. Dùng policy và tracker để lọc hoặc ổn định dữ liệu.
+5. Dùng `AudioManager` để quyết định có cần phát âm không.
+6. Cập nhật state.
+7. UI tự rebuild theo state mới.
 
 #### Các biến nội bộ quan trọng
 
@@ -318,40 +322,23 @@ Chặn xử lý chồng chéo nhiều frame cùng lúc.
 
 ##### `_lastFrameAcceptedAt`
 
-Theo dõi thời điểm frame gần nhất được nhận.
+Mốc thời gian nhận frame gần nhất.
 
-##### `_lastSmartTtsAt`
+##### `_objectTracker`
 
-Theo dõi thời điểm gần nhất app phát âm.
+Giữ tracking id ổn định cho detections qua nhiều frame.
+
+##### `_audioManager`
+
+Điều tiết nhịp đọc TTS theo tracking id và mức độ cảnh báo.
 
 ##### `_labelMetadata`
 
-Metadata tiếng Việt và bucket của từng label.
-
-##### `_lastWarningKeys`
-
-Theo dõi cảnh báo đã nói gần nhất.
-
-##### `_lastSpokenMessageKey`
-
-Giúp tránh lặp lại câu nói y hệt.
-
-### `SafeVisionEvent`
-
-#### Vai trò
-
-Là lớp gốc cho toàn bộ event của feature.
-
-Tách event thành từng lớp con giúp code rõ hơn:
-
-- event nào dùng để khởi động
-- event nào dùng để xử lý frame
-- event nào dùng để đổi mode
-- event nào dùng để đổi camera
+Bản đồ nhãn tiếng Việt và bucket cảnh báo lấy từ asset.
 
 ### `SafeVisionState`
 
-#### Vai trò
+#### Nhiệm vụ
 
 Lưu toàn bộ trạng thái hiện tại của màn hình.
 
@@ -363,124 +350,69 @@ Vì vậy, muốn hiểu app đang làm gì, bạn chỉ cần nhìn state:
 
 - đang khởi tạo hay chưa
 - đang ở mode nào
-- có detection nào không
 - camera trước hay sau
 - có lỗi hay không
+- detections hiện tại là gì
 
-#### `copyWith()`
-
-Dùng để tạo state mới từ state cũ mà chỉ đổi một vài trường.
-
-Đây là cách Bloc hoạt động rất điển hình: không sửa state cũ, mà tạo state mới.
-
-## 4. Domain layer
-
-### `InitializeVisionUseCase`
-
-#### Nhiệm vụ
-
-- Gọi `visionRepository.initializeCamera()`.
-
-#### Ý nghĩa
-
-Đây là lớp nói với hệ thống rằng: “hãy chuẩn bị camera và các thành phần vision”.
-
-### `DetectObjectsUseCase`
-
-#### Nhiệm vụ
-
-- Gọi `visionRepository.detect(image)`.
-
-#### Ý nghĩa
-
-Đây là lớp nói: “hãy phân tích frame này và trả về các vật thể nhìn thấy”.
-
-### `SpeakMessageUseCase`
-
-#### Nhiệm vụ
-
-- cấu hình TTS
-- phát âm
-- dừng âm thanh
-- kiểm tra đang nói hay không
-
-#### Ý nghĩa
-
-Bloc không cần biết TTS là package nào. Nó chỉ cần một lớp nói “hãy đọc câu này”.
+## 4. Domain và policy
 
 ### `SafeVisionPolicy`
 
-Đây là lớp quan trọng nhất trong domain.
+#### Vai trò
 
-#### Vai trò của policy
+Là nơi quyết định luật nghiệp vụ cho detection, status text và speech payload.
 
-Policy quyết định:
+#### Nó xử lý gì
 
-- detection nào được giữ
-- detection nào bị bỏ qua
-- câu nào sẽ hiển thị
-- câu nào sẽ được nói ra
+- lọc detections theo mode
+- xác định object nào nằm trong vùng nguy hiểm
+- tạo câu trạng thái cho UI
+- tạo nội dung giọng nói cho TTS
 
-#### Tại sao phải có policy riêng
+### `IoUObjectTracker`
 
-Vì nếu không có policy, các rule nghiệp vụ sẽ bị rải ở nhiều nơi:
+#### Vai trò
 
-- một ít ở bloc
-- một ít ở widget
-- một ít ở repository
+Giữ tracking id và bounding box ổn định qua nhiều frame.
 
-Khi đó sửa một rule sẽ rất khó.
+#### Tại sao cần tracker riêng
 
-#### Ba hàm chính
+Vì camera trả frame liên tục, còn detection thô có thể dao động giữa các frame. Tracker giúp cùng một vật thể vẫn được nhận ra là cùng một thực thể.
 
-##### `filterDetectionsForMode()`
+### `AudioManager`
 
-Lọc detections theo mode.
+#### Vai trò
 
-##### `buildStatusText()`
+Quyết định khi nào cần nói, khi nào cần ngắt câu cũ, và khi nào cần im lặng để tránh spam.
 
-Tạo câu trạng thái ngắn cho UI.
+#### Tại sao cần lớp này
 
-##### `buildSpeechPayload()`
-
-Tạo nội dung giọng nói cho TTS.
+Nếu chỉ dựa vào `SpeakMessageUseCase`, app sẽ rất dễ đọc lặp cùng một cảnh báo nhiều lần liên tiếp.
 
 ### `Detection`
 
 #### Vai trò
 
-Đại diện cho một object đã detect được.
+Model dữ liệu của một object đã được nhận diện.
 
-#### Nó chứa gì
+#### Các property chính
 
-- tên object
-- độ tin cậy
-- tọa độ box
-
-#### Các helper property
-
-- `width`
-- `height`
+- `label`
+- `score`
+- `left`, `top`, `right`, `bottom`
+- `trackingId`
 - `areaRatio`
-- `centerX`
-
-Những helper này phục vụ tính toán nguy hiểm và hiển thị.
+- `estimatedDistance`
 
 ### `SafeVisionMode`
 
 #### Vai trò
 
-Xác định 3 chế độ hoạt động:
+Định nghĩa 3 mode của app:
 
-- outdoor
-- indoor
-- tutorial
-
-#### Ý nghĩa thực tế
-
-- outdoor: nhấn mạnh an toàn đường đi
-- indoor: nhấn mạnh tìm vật dụng
-- tutorial: nhấn mạnh học cách sử dụng
+- `outdoor`
+- `indoor`
+- `tutorial`
 
 ### `VisionRepository`
 
@@ -492,7 +424,7 @@ Là hợp đồng cho tầng vision.
 
 - cách camera được mở
 - cách TFLite chạy
-- cách ML Kit track object
+- cách rotation được tính
 
 ### `SpeechRepository`
 
@@ -500,178 +432,72 @@ Là hợp đồng cho tầng vision.
 
 Là hợp đồng cho tầng speech/TTS.
 
+#### Nó che giấu gì
+
+- cách cấu hình tiếng Việt
+- cách phát âm
+- cách dừng phát âm
+- cách dọn tài nguyên TTS
+
 ## 5. Data layer
 
 ### `VisionRepositoryImpl`
 
 #### Vai trò
 
-Là nơi ghép camera + ML Kit + TFLite thành một pipeline hoàn chỉnh.
+Là nơi ghép camera + TFLite thành một pipeline hoàn chỉnh.
 
 #### Tại sao không để Bloc làm việc này
 
 Vì Bloc cần giữ vai trò điều phối trạng thái, không nên gánh toàn bộ chi tiết kỹ thuật của AI và camera.
 
-#### `initializeCamera()`
-
-Khởi tạo camera và load các thành phần model.
-
-#### `detect()`
-
-Nhận một frame rồi trả về danh sách detections.
-
-#### `_detectHybrid()`
-
-Là pipeline chính:
-
-1. track object
-2. tìm ROI
-3. chạy detector theo chu kỳ
-4. ghép label với tracking
-5. trả kết quả cuối
-
-#### `_fuseTrackedWithLabels()`
-
-Ghép box theo tracking với label tốt nhất.
-
-#### `_bestMatch()`
-
-Tìm detection phù hợp nhất với một box track.
-
-#### `_nonMaxSuppression()`
-
-Loại box trùng lặp.
-
 ### `CameraDataSource`
 
 #### Vai trò
 
-Quản lý camera thật.
+Quản lý camera thật trên thiết bị.
 
-#### Các việc chính
+#### Đầu vào và đầu ra
 
-- mở camera
-- đổi camera
-- bắt đầu stream
-- dừng và giải phóng camera
-
-#### Đầu ra quan trọng
-
-- `CameraController`
-
-### `MlKitTrackerDataSource`
-
-#### Vai trò
-
-Là lớp chuyên làm tracking và tìm ROI.
-
-#### `load()`
-
-Khởi tạo detector.
-
-#### `track()`
-
-Lấy box tracking của object đang xuất hiện.
-
-#### `detectPersonRois()`
-
-Tìm vùng người để tối ưu việc detect tiếp theo.
+- Đầu vào: yêu cầu khởi tạo hoặc đổi camera.
+- Đầu ra: `CameraController` sẵn sàng để hiển thị preview và stream frame.
 
 ### `TfliteDetectorDataSource`
 
 #### Vai trò
 
-Chạy model TFLite để phát hiện object.
+Chạy suy luận TFLite trong isolate riêng để tránh block UI.
 
-#### Tại sao phức tạp hơn các lớp khác
+#### Hai việc quan trọng
 
-Vì nó phải:
-
-- nạp model
-- chạy isolate
-- xử lý ảnh YUV
-- trả result theo request id
-
-#### `load()`
-
-Nạp labels và model, khởi tạo worker isolate.
-
-#### `detect()`
-
-Chạy detect trên toàn ảnh.
-
-#### `detectInRoi()`
-
-Chạy detect trong vùng nhỏ hơn.
-
-#### `_requestDetection()`
-
-Gửi frame sang isolate để xử lý.
+- load labels và model từ asset
+- nhận `CameraImage` rồi trả về danh sách `Detection`
 
 ### `TtsDataSource`
 
 #### Vai trò
 
-Phát âm tiếng Việt.
-
-#### Các việc chính
-
-- set language
-- set pitch
-- set speech rate
-- speak
-- stop
-
-#### Tại sao phải có `_isSpeaking`
-
-Để Bloc biết TTS đang bận hay không.
-
-### `MlKitInputImageConverter`
-
-#### Vai trò
-
-Chuyển `CameraImage` sang `InputImage` cho ML Kit.
-
-#### Tại sao cần converter riêng
-
-Vì camera trả ảnh thô theo format riêng, còn ML Kit cần input theo format khác.
-
-#### Hai việc quan trọng
-
-- đổi format ảnh
-- tính rotation đúng
+Bọc `FlutterTts`, cấu hình tiếng Việt và điều khiển phát âm.
 
 ### `SpeechRepositoryImpl`
 
 #### Vai trò
 
-Lớp mỏng bọc TTS datasource.
+Gom logic từ `TtsDataSource` thành API sạch hơn cho domain.
 
-#### Lợi ích
+## 6. Cách các class tương tác
 
-Giữ cho domain chỉ nhìn thấy interface `SpeechRepository`.
+### Luồng runtime ngắn gọn
 
-## 6. Luồng tổng hợp dễ hiểu
+1. `main()` mở app.
+2. `SafeVisionApp` dựng dependency.
+3. `SafeVisionBloc` nhận event khởi động.
+4. `VisionRepositoryImpl` mở camera và load TFLite.
+5. `SafeVisionPage` nhận state và render UI.
+6. Camera stream trả frame vào Bloc.
+7. Bloc detect, tracker, policy và audio manager xử lý.
+8. UI và TTS cập nhật theo state mới.
 
-Hãy nhớ chuỗi sau:
+### Câu nhớ nhanh
 
-1. UI mở ra.
-2. Page bắn event start.
-3. Bloc khởi tạo camera, TTS và model.
-4. Camera bắt đầu đẩy frame.
-5. Bloc nhận frame và gọi detect.
-6. Repository ghép tracker + detector.
-7. Policy lọc kết quả theo mode.
-8. UI hiển thị bounding box và status.
-9. TTS nói nếu có cảnh báo phù hợp.
-
-## 7. Một câu chốt để nhớ kiến trúc này
-
-Nếu phải nhớ ít thôi, hãy nhớ câu này:
-
-- UI chỉ nhận lệnh và hiển thị
-- Bloc điều phối
-- Domain quyết định luật
-- Data làm việc nặng
-
-Đây chính là xương sống của dự án Safe Vision.
+UI chỉ gửi ý định, Bloc điều phối, domain áp luật và nhịp đọc, data làm việc nặng.

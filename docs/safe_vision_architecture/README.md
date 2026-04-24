@@ -14,7 +14,7 @@ Mục tiêu của bộ tài liệu này không chỉ là liệt kê class, mà l
 1. Đọc Phase 1 để hiểu app khởi động và tạo dependency như thế nào.
 2. Đọc Phase 2 để hiểu UI nhận state từ Bloc và phát sinh event ra sao.
 3. Đọc Phase 3 để hiểu lớp domain, policy và quy tắc xử lý nghiệp vụ.
-4. Đọc Phase 4 để hiểu tầng data: camera, ML Kit, TFLite, TTS.
+4. Đọc Phase 4 để hiểu tầng data: camera, TFLite, TTS.
 5. Đọc Phase 5 để ghép toàn bộ vòng đời từ mở app đến cảnh báo giọng nói.
 
 ## Các file
@@ -33,7 +33,9 @@ Mục tiêu của bộ tài liệu này không chỉ là liệt kê class, mà l
 - `SafeVisionPage` chỉ quan sát state và bắn event khi người dùng thao tác.
 - `SafeVisionBloc` là bộ điều phối trung tâm giữa UI, domain và data.
 - `SafeVisionPolicy` quyết định cái gì được giữ lại, cái gì được nói ra.
-- `VisionRepositoryImpl` là nơi ghép kết quả tracker + detector + ROI để tạo detections ổn định hơn.
+- `IoUObjectTracker` giữ cho detection ổn định qua nhiều frame.
+- `AudioManager` điều tiết nhịp đọc TTS để tránh lặp câu quá dày.
+- `VisionRepositoryImpl` ghép camera + TFLite thành pipeline detection ở tầng data.
 - `TtsDataSource` chịu trách nhiệm phát âm tiếng Việt.
 
 ## Gợi ý học theo thứ tự

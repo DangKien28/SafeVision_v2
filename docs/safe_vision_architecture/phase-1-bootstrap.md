@@ -26,12 +26,11 @@ File này giống như nơi lắp ráp các bộ phận trước khi đưa app r
 Luồng tạo object trong `initState()`:
 
 1. Tạo `CameraDataSource` để làm việc với camera vật lý.
-2. Tạo `MlKitTrackerDataSource` để track object và detect person ROI.
-3. Tạo `TfliteDetectorDataSource` để chạy model TFLite `assets/best_int8.tflite`.
-4. Tạo `TtsDataSource` để phát âm.
-5. Bọc các data source vào `VisionRepositoryImpl` và `SpeechRepositoryImpl`.
-6. Tạo 3 use case: `InitializeVisionUseCase`, `DetectObjectsUseCase`, `SpeakMessageUseCase`.
-7. Tạo `SafeVisionBloc` và giữ nó trong biến `_bloc`.
+2. Tạo `TfliteDetectorDataSource` để chạy model TFLite `assets/best_float16.tflite`.
+3. Tạo `TtsDataSource` để phát âm.
+4. Bọc các data source vào `VisionRepositoryImpl` và `SpeechRepositoryImpl`.
+5. Tạo 3 use case: `InitializeVisionUseCase`, `DetectObjectsUseCase`, `SpeakMessageUseCase`.
+6. Tạo `SafeVisionBloc` và giữ nó trong biến `_bloc`.
 
 Điểm quan trọng ở đây là thứ tự tạo object không ngẫu nhiên:
 
@@ -56,15 +55,6 @@ Nó là tầng gần phần cứng nhất trong feature camera.
 
 Đầu vào của nó là yêu cầu khởi tạo hoặc đổi camera. Đầu ra của nó là một `CameraController` đã sẵn sàng để hiển thị preview và stream frame.
 
-### `MlKitTrackerDataSource`
-
-Lớp này là cầu nối với ML Kit.
-
-- Một detector phục vụ tracking box.
-- Một detector khác phục vụ tìm person để lấy ROI.(Vùng quan tâm)
-
-Nói đơn giản, lớp này dùng để “bám” vào các vật thể đang di chuyển và phát hiện vùng ưu tiên quanh người để lần sau detector TFLite chạy nhanh hơn.
-
 ### `TfliteDetectorDataSource`
 
 Lớp này nạp model TFLite và chạy suy luận trong isolate riêng để tránh block UI.
@@ -81,7 +71,7 @@ Bạn có thể hiểu nó như loa thông minh của app: nhận câu chữ, đ
 
 Hai class này gom logic từ data source thành một API sạch hơn cho domain.
 
-Lý do tách repository là để domain và bloc không phải biết mỗi thứ plugin nào đang dùng, format dữ liệu bên trong ra sao, hay camera, ML Kit, TFLite được ghép như thế nào.
+Lý do tách repository là để domain và bloc không phải biết mỗi thứ plugin nào đang dùng, format dữ liệu bên trong ra sao, hay camera và TFLite được ghép như thế nào.
 
 ### `SafeVisionBloc`
 
