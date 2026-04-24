@@ -20,13 +20,35 @@ void main() {
       ),
     );
 
-    expect(find.text('Ngoai troi'), findsOneWidget);
-    expect(find.text('Trong nha'), findsOneWidget);
-    expect(find.text('Huong dan'), findsOneWidget);
+    expect(find.text('Ngoài trời'), findsOneWidget);
+    expect(find.text('Trong nhà'), findsOneWidget);
 
-    await tester.tap(find.text('Trong nha'));
+    // Verify the widget renders exactly as many buttons as there are modes
+    expect(
+      find.byType(FilledButton),
+      findsNWidgets(SafeVisionMode.values.length),
+    );
+
+    await tester.tap(find.text('Trong nhà'));
     await tester.pump();
 
     expect(selectedMode, SafeVisionMode.indoor);
+  });
+
+  testWidgets('BottomActionBar highlights the active mode', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BottomActionBar(
+            mode: SafeVisionMode.indoor,
+            onModeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    // Both labels should still be rendered regardless of active mode
+    expect(find.text('Ngoài trời'), findsOneWidget);
+    expect(find.text('Trong nhà'), findsOneWidget);
   });
 }

@@ -37,6 +37,8 @@ class SafeVisionState {
   final CameraController? cameraController;
   final String? errorMessage;
 
+  /// Pass [clearError] = true to explicitly clear an existing error.
+  /// Omitting [errorMessage] now preserves the existing value, unlike before.
   SafeVisionState copyWith({
     bool? isInitializing,
     String? statusText,
@@ -46,6 +48,7 @@ class SafeVisionState {
     List<Detection>? detections,
     CameraController? cameraController,
     String? errorMessage,
+    bool clearError = false,
   }) {
     return SafeVisionState(
       isInitializing: isInitializing ?? this.isInitializing,
@@ -55,7 +58,8 @@ class SafeVisionState {
       rawDetections: rawDetections ?? this.rawDetections,
       detections: detections ?? this.detections,
       cameraController: cameraController ?? this.cameraController,
-      errorMessage: errorMessage,
+      // FIX: preserve existing error unless a new one is supplied or clearError is true
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
 }

@@ -6,10 +6,7 @@ enum SafeVisionLabelBucket { warning, instruction, recognition }
 enum RiskZone { safe, warning, danger }
 
 class SafeVisionLabelMetadata {
-  const SafeVisionLabelMetadata({
-    required this.viLabel,
-    required this.bucket,
-  });
+  const SafeVisionLabelMetadata({required this.viLabel, required this.bucket});
 
   final String viLabel;
   final SafeVisionLabelBucket bucket;
@@ -28,7 +25,9 @@ class SafeVisionSpeechPayload {
 }
 
 class SafeVisionPolicy {
-  static const double riskZoneAreaThreshold = 0.12;
+  // Minimum bounding-box area (as fraction of frame) for a detection to enter
+  // the risk zone. Filters out tiny false-positive detections from distant objects.
+  static const double riskZoneAreaThreshold = 0.012;
   static const double riskZoneBottomThreshold = 0.70;
   static const Set<String> _alwaysWarnLabels = {'lua', 'fire'};
 
@@ -37,23 +36,27 @@ class SafeVisionPolicy {
     List<Detection> detections,
     Map<String, SafeVisionLabelMetadata> metadata,
   ) {
-    final filtered = detections.where((detection) {
-      final bucket = metadata[_normalizeLabel(detection.label)]?.bucket ??
-          SafeVisionLabelBucket.recognition;
+    final filtered = detections
+        .where((detection) {
+          final bucket =
+              metadata[_normalizeLabel(detection.label)]?.bucket ??
+              SafeVisionLabelBucket.recognition;
 
-      if (mode == SafeVisionMode.indoor) {
-        return true;
-      }
+          if (mode == SafeVisionMode.indoor) {
+            return true;
+          }
 
-      return bucket != SafeVisionLabelBucket.recognition ||
-          isInRiskZone(detection) ||
-          shouldAlwaysWarn(detection);
-    }).toList(growable: false);
+          return bucket != SafeVisionLabelBucket.recognition ||
+              isInRiskZone(detection) ||
+              shouldAlwaysWarn(detection);
+        })
+        .toList(growable: false);
 
     filtered.sort((a, b) {
-      final dangerCompare = _dangerPriority(b, metadata).compareTo(
-        _dangerPriority(a, metadata),
-      );
+      final dangerCompare = _dangerPriority(
+        b,
+        metadata,
+      ).compareTo(_dangerPriority(a, metadata));
       if (dangerCompare != 0) {
         return dangerCompare;
       }
@@ -75,23 +78,25 @@ class SafeVisionPolicy {
     switch (mode) {
       case SafeVisionMode.indoor:
         if (detections.isEmpty) {
-          return 'Quet de tim vat dung quanh ban';
+          return 'Quét để tìm vật dụng xung quanh bạn';
         }
         final top = detections.first;
         final percent = (top.score * 100).toStringAsFixed(0);
-        return 'Tim thay: ${localizedLabel(top, metadata)} ($percent%)';
+        return 'Tìm thấy: ${localizedLabel(top, metadata)} ($percent%)';
       case SafeVisionMode.outdoor:
-        final urgentDetections = detections.where((detection) {
-          return isInRiskZone(detection) || shouldAlwaysWarn(detection);
-        }).toList(growable: false);
+        final urgentDetections = detections
+            .where((detection) {
+              return isInRiskZone(detection) || shouldAlwaysWarn(detection);
+            })
+            .toList(growable: false);
         if (urgentDetections.isEmpty) {
           return detections.isEmpty
-              ? 'Khong co vat can nguy hiem'
-              : 'Da nhan dien vat the, chua co vat can vao vung nguy hiem';
+              ? 'Không có vật cản nguy hiểm'
+              : 'Đã nhận diện vật thể, chưa có vật cản vào vùng nguy hiểm';
         }
         final top = urgentDetections.first;
         final percent = (top.score * 100).toStringAsFixed(0);
-        return 'Canh bao: ${localizedLabel(top, metadata)} ($percent%)';
+        return 'Cảnh báo: ${localizedLabel(top, metadata)} ($percent%)';
     }
   }
 
@@ -131,10 +136,10 @@ class SafeVisionPolicy {
       items.sort((a, b) => b.count.compareTo(a.count));
 
       return SafeVisionSpeechPayload(
-        message: 'Tim thay ${_joinBucketPhrases(items)}.',
+        message: 'Tìm thấy ${_joinBucketPhrases(items)}.',
         warningKeys: <String>{},
         messageKey:
-            'indoor:${items.map((e) => '${e.count}${e.rawLabel}').join(',')}',
+            'indoor:${items.map((e) => '${e.count}:${e.rawLabel}').join(',')}',
       );
     }
 
@@ -185,13 +190,13 @@ class SafeVisionPolicy {
 
     final chunks = <String>[];
     if (warningItems.isNotEmpty) {
-      chunks.add('Canh bao co ${_joinBucketPhrases(warningItems)}.');
+      chunks.add('Cảnh báo có ${_joinBucketPhrases(warningItems)}.');
     }
     if (instructionItems.isNotEmpty) {
-      chunks.add('Chu y: ${_joinBucketPhrases(instructionItems)}.');
+      chunks.add('Chú ý: ${_joinBucketPhrases(instructionItems)}.');
     }
     if (recognitionItems.isNotEmpty) {
-      chunks.add('Phia truoc co ${_joinBucketPhrases(recognitionItems)}.');
+      chunks.add('Phía trước có ${_joinBucketPhrases(recognitionItems)}.');
     }
 
     final messageKeyParts = <String>[
@@ -210,6 +215,11 @@ class SafeVisionPolicy {
   static RiskZone getRiskZone(Detection detection) {
     if (shouldAlwaysWarn(detection)) {
       return RiskZone.danger;
+    }
+
+    // FIX: apply area threshold — ignore detections too small to be in-scene
+    if (detection.areaRatio < riskZoneAreaThreshold) {
+      return RiskZone.safe;
     }
 
     if (detection.estimatedDistance < 2.5 || detection.bottom >= 0.8) {
@@ -248,7 +258,8 @@ class SafeVisionPolicy {
     if (shouldAlwaysWarn(detection)) {
       return 2;
     }
-    final bucket = metadata[_normalizeLabel(detection.label)]?.bucket ??
+    final bucket =
+        metadata[_normalizeLabel(detection.label)]?.bucket ??
         SafeVisionLabelBucket.recognition;
     if (bucket == SafeVisionLabelBucket.warning) {
       return 1;
@@ -265,10 +276,10 @@ class SafeVisionPolicy {
       return phrases.first;
     }
     if (phrases.length == 2) {
-      return '${phrases[0]} va ${phrases[1]}';
+      return '${phrases[0]} và ${phrases[1]}';
     }
     final head = phrases.sublist(0, phrases.length - 1).join(', ');
-    return '$head va ${phrases.last}';
+    return '$head và ${phrases.last}';
   }
 }
 

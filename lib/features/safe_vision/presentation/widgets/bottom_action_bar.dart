@@ -34,14 +34,15 @@ class BottomActionBar extends StatelessWidget {
                       backgroundColor: m == mode
                           ? const Color(0xFFE8D98B)
                           : const Color(0xFF2C3D35),
-                      foregroundColor:
-                          m == mode ? const Color(0xFF102019) : Colors.white,
+                      foregroundColor: m == mode
+                          ? const Color(0xFF102019)
+                          : Colors.white,
                     ),
-                      child: Text(
-                        switch (m) {
-                          SafeVisionMode.outdoor => 'Ngoai troi',
-                          SafeVisionMode.indoor => 'Trong nha',
-                        },
+                    child: Text(
+                      switch (m) {
+                        SafeVisionMode.outdoor => 'Ngoài trời',
+                        SafeVisionMode.indoor => 'Trong nhà',
+                      },
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

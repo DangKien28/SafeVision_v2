@@ -52,23 +52,20 @@ class DetectionPainter extends CustomPainter {
       );
       canvas.drawRect(bgRect, Paint()..color = const Color(0xCC102219));
       textPainter.paint(canvas, Offset(bgRect.left + 5, bgRect.top + 2));
+      textPainter.dispose(); // FIX: release native Paragraph resource after use
     }
   }
 
   @override
   bool shouldRepaint(covariant DetectionPainter oldDelegate) {
-    // Return true if the list length differs
     if (oldDelegate.detections.length != detections.length) {
       return true;
     }
-    
-    // Check if any detection has changed
     for (var i = 0; i < detections.length; i++) {
       if (oldDelegate.detections[i] != detections[i]) {
         return true;
       }
     }
-    
     return false;
   }
 }

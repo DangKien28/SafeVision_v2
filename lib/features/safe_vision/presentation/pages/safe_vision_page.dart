@@ -61,7 +61,7 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
                       previous.isFrontCamera != current.isFrontCamera,
                   builder: (context, state) {
                     return Semantics(
-                      label: 'Doi camera truoc hoac sau',
+                      label: 'Đổi camera trước hoặc sau',
                       button: true,
                       child: SizedBox(
                         width: 86,
@@ -97,7 +97,7 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
                             children: [
                               const Icon(Icons.cameraswitch, size: 34),
                               Text(
-                                state.isFrontCamera ? 'TRUOC' : 'SAU',
+                                state.isFrontCamera ? 'TRƯỚC' : 'SAU',
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w900,
@@ -137,7 +137,6 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
       ),
     );
   }
-
 }
 
 class _CameraStage extends StatelessWidget {
@@ -145,13 +144,19 @@ class _CameraStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocSelector<SafeVisionBloc, SafeVisionState, (bool, CameraController?)>(
+    return BlocSelector<
+      SafeVisionBloc,
+      SafeVisionState,
+      (bool, CameraController?)
+    >(
       selector: (state) => (state.isInitializing, state.cameraController),
       builder: (context, cameraState) {
         final isInitializing = cameraState.$1;
         final controller = cameraState.$2;
 
-        if (isInitializing || controller == null || !controller.value.isInitialized) {
+        if (isInitializing ||
+            controller == null ||
+            !controller.value.isInitialized) {
           return const LoadingPanel();
         }
 
@@ -168,15 +173,11 @@ class _CameraStage extends StatelessWidget {
                 child: Stack(
                   children: [
                     Positioned.fill(
-                      child: RepaintBoundary(
-                        child: CameraPreview(controller),
-                      ),
+                      child: RepaintBoundary(child: CameraPreview(controller)),
                     ),
                     const Positioned.fill(
                       child: IgnorePointer(
-                        child: RepaintBoundary(
-                          child: _DetectionOverlay(),
-                        ),
+                        child: RepaintBoundary(child: _DetectionOverlay()),
                       ),
                     ),
                   ],
@@ -198,9 +199,7 @@ class _DetectionOverlay extends StatelessWidget {
     return BlocSelector<SafeVisionBloc, SafeVisionState, List<Detection>>(
       selector: (state) => state.detections,
       builder: (context, detections) {
-        return CustomPaint(
-          painter: DetectionPainter(detections),
-        );
+        return CustomPaint(painter: DetectionPainter(detections));
       },
     );
   }
@@ -211,13 +210,14 @@ class _StatusLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocSelector<SafeVisionBloc, SafeVisionState, (SafeVisionMode, String)>(
+    return BlocSelector<
+      SafeVisionBloc,
+      SafeVisionState,
+      (SafeVisionMode, String)
+    >(
       selector: (state) => (state.mode, state.statusText),
       builder: (context, status) {
-        return TopStatusBar(
-          mode: status.$1,
-          statusText: status.$2,
-        );
+        return TopStatusBar(mode: status.$1, statusText: status.$2);
       },
     );
   }

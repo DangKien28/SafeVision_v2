@@ -14,28 +14,34 @@ class AudioManager {
   String _lastSpokenMessageKey = '';
   Set<String> _lastWarningKeys = <String>{};
 
-  // Track when an object ID was last spoken and at what risk level
   final Map<int, _TrackedAudioState> _trackedAudioStates = {};
 
   static const int _ttsCooldownMs = 1200;
   static const int _ttsWarningCooldownMs = 500;
-  // How long to wait before repeating the same object if its risk hasn't increased
-  static const int _repeatCooldownMs = 5000; 
+  static const int _repeatCooldownMs = 5000;
+  // Stale track states older than this are always pruned
+  static const int _trackMaxAgeMs = 10000;
 
   Future<void> processDetections({
     required SafeVisionMode mode,
     required List<Detection> detections,
     required Map<String, SafeVisionLabelMetadata> metadata,
   }) async {
-    // Filter detections that need to be spoken based on state tracking
     final now = DateTime.now();
+
+    // FIX: always prune stale tracks, not just when detections are present
+    _trackedAudioStates.removeWhere(
+      (_, value) =>
+          now.difference(value.lastSpokenAt).inMilliseconds > _trackMaxAgeMs,
+    );
+
     final urgentDetections = <Detection>[];
     var highestPriority = AudioPriority.low;
 
     for (final detection in detections) {
       final riskZone = SafeVisionPolicy.getRiskZone(detection);
       final priority = _getPriority(detection, riskZone, metadata);
-      
+
       if (priority.index > highestPriority.index) {
         highestPriority = priority;
       }
@@ -43,21 +49,22 @@ class AudioManager {
       final trackId = detection.trackingId;
       if (trackId != null) {
         final state = _trackedAudioStates[trackId];
-        final isRiskEscalated = state != null && riskZone.index > state.lastRiskZone.index;
-        final isTimeExpired = state != null && now.difference(state.lastSpokenAt).inMilliseconds > _repeatCooldownMs;
+        final isRiskEscalated =
+            state != null && riskZone.index > state.lastRiskZone.index;
+        final isTimeExpired = state != null &&
+            now.difference(state.lastSpokenAt).inMilliseconds >
+                _repeatCooldownMs;
 
         if (state == null || isRiskEscalated || isTimeExpired) {
           urgentDetections.add(detection);
-          // Don't update state here, update after building payload if it's spoken
         }
       } else {
-        // Fallback if no track ID
         urgentDetections.add(detection);
       }
     }
 
     if (urgentDetections.isEmpty) {
-      return; // Nothing urgent or new to say
+      return;
     }
 
     final payload = SafeVisionPolicy.buildSpeechPayload(
@@ -71,34 +78,35 @@ class AudioManager {
       return;
     }
 
-    if (payload.messageKey == _lastSpokenMessageKey && highestPriority != AudioPriority.high) {
-      // Don't spam the same exact message unless it's high priority
+    if (payload.messageKey == _lastSpokenMessageKey &&
+        highestPriority != AudioPriority.high) {
       return;
     }
 
-    final hasNewWarning = payload.warningKeys.difference(_lastWarningKeys).isNotEmpty;
+    final hasNewWarning =
+        payload.warningKeys.difference(_lastWarningKeys).isNotEmpty;
 
     if (_speakMessageUseCase.isSpeaking) {
       if (highestPriority == AudioPriority.high || hasNewWarning) {
         await _speakMessageUseCase.stop();
       } else {
-        return; // Skip if currently speaking and priority isn't high enough to interrupt
+        return;
       }
     }
 
-    final cooldown = (highestPriority == AudioPriority.high || hasNewWarning) ? _ttsWarningCooldownMs : _ttsCooldownMs;
+    final cooldown = (highestPriority == AudioPriority.high || hasNewWarning)
+        ? _ttsWarningCooldownMs
+        : _ttsCooldownMs;
     if (now.difference(_lastSmartTtsAt).inMilliseconds < cooldown) {
       return;
     }
 
-    // Speak!
     await _speakMessageUseCase(payload.message, interrupt: true);
-    
-    // Update states
+
     _lastSmartTtsAt = now;
     _lastWarningKeys = payload.warningKeys;
     _lastSpokenMessageKey = payload.messageKey;
-    
+
     for (final detection in urgentDetections) {
       if (detection.trackingId != null) {
         _trackedAudioStates[detection.trackingId!] = _TrackedAudioState(
@@ -107,12 +115,13 @@ class AudioManager {
         );
       }
     }
-    
-    // Cleanup old tracking states
-    _trackedAudioStates.removeWhere((key, value) => now.difference(value.lastSpokenAt).inMilliseconds > 10000);
   }
 
-  AudioPriority _getPriority(Detection detection, RiskZone riskZone, Map<String, SafeVisionLabelMetadata> metadata) {
+  AudioPriority _getPriority(
+    Detection detection,
+    RiskZone riskZone,
+    Map<String, SafeVisionLabelMetadata> metadata,
+  ) {
     if (SafeVisionPolicy.shouldAlwaysWarn(detection)) {
       return AudioPriority.high;
     }

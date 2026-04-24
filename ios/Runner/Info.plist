@@ -46,6 +46,6 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>SafeVision su dung camera de nhan dien vat can va canh bao bang giong noi.</string>
+	<string>SafeVision sử dụng camera để nhận diện vật cản và cảnh báo bằng giọng nói.</string>
 </dict>
 </plist>
