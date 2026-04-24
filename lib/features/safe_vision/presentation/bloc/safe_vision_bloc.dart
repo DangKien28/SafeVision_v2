@@ -18,7 +18,7 @@ import 'safe_vision_event.dart';
 import 'safe_vision_state.dart';
 
 class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
-  static const int _frameThrottleMs = 67;
+  static const int _frameThrottleMs = 33;
 
   SafeVisionBloc({
     required InitializeVisionUseCase initializeVisionUseCase,
@@ -61,6 +61,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     SafeVisionStarted event,
     Emitter<SafeVisionState> emit,
   ) async {
+    debugPrint('SafeVisionBloc: _onStarted called');
     try {
       await _loadTtsMetadata();
       await _speakMessageUseCase.configure();
@@ -106,6 +107,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         _currentFps = _frameCount * 1000 / diff;
         _frameCount = 0;
         _lastFpsCalculationTime = now;
+        debugPrint('SafeVision_FPS: ${_currentFps.toStringAsFixed(1)}');
       }
 
       final rawDetections = await _detectObjectsUseCase(

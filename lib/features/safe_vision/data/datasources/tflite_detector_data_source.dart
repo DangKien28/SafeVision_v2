@@ -7,6 +7,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:image/image.dart' as img;
 
 import '../../domain/entities/detection.dart';
 
@@ -65,8 +66,9 @@ class TfliteDetectorDataSource {
 
       await _loadCompleter!.future;
     } catch (e) {
-      _loadCompleter?.completeError(e);
       rethrow;
+    } finally {
+      _loadCompleter = null;
     }
   }
 
@@ -271,7 +273,7 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
 
   try {
     final options = InterpreterOptions()..threads = threads;
-    _configureHardwareDelegateWorker(options, enableAndroidAcceleration);
+    _configureHardwareDelegateWorker(options, enableAndroidAcceleration, mainSendPort);
 
     final initializedInterpreter = Interpreter.fromBuffer(
       modelBytes,
@@ -375,7 +377,18 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
 
       final inputTensor = interpreter!.getInputTensor(0);
       inputTensor.setTo(input);
+      
+      final stopwatch = Stopwatch()..start();
       interpreter.invoke();
+      stopwatch.stop();
+      
+      if (requestId % 30 == 0) {
+        mainSendPort.send({
+          'type': 'debug',
+          'message': 'Inference time: ${stopwatch.elapsedMilliseconds}ms',
+        });
+      }
+
       for (var i = 0; i < outputShapes.length; i++) {
         final outputBuffer = outputBuffers[i];
         if (outputBuffer == null) {
@@ -446,29 +459,25 @@ void _inferenceIsolateEntry(Map<Object?, Object?> initMessage) async {
 void _configureHardwareDelegateWorker(
   InterpreterOptions options,
   bool enableAndroidAcceleration,
+  SendPort mainSendPort,
 ) {
-  if (kIsWeb) {
-    return;
-  }
+  if (kIsWeb) return;
 
   if (defaultTargetPlatform == TargetPlatform.iOS) {
     try {
       options.addDelegate(GpuDelegateV2());
-      return;
-    } catch (_) {}
+    } catch (_) {
+      // Fallback to CPU
+    }
+    return;
   }
 
-  if (defaultTargetPlatform == TargetPlatform.android &&
-      enableAndroidAcceleration) {
-    try {
-      final dynamic dynamicOptions = options;
-      dynamicOptions.useNnApiForAndroid = true;
-      return;
-    } catch (_) {}
-
-    try {
-      options.addDelegate(GpuDelegateV2());
-    } catch (_) {}
+  if (defaultTargetPlatform == TargetPlatform.android && enableAndroidAcceleration) {
+    // Force CPU for better compatibility with this model on this device
+    options.threads = 4;
+    mainSendPort.send({'type': 'debug', 'message': 'Using CPU mode (4 threads)'});
+  } else {
+    options.threads = 4;
   }
 }
 
@@ -1173,225 +1182,83 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
 
   final cropX = (roiLeft * width).floor().clamp(0, width - 1);
   final cropY = (roiTop * height).floor().clamp(0, height - 1);
-  final rawCropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
-  final rawCropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
+  final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
+  final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
 
-  final deg = ((rotationDegrees % 360) + 360) % 360;
-  final isRotated90 = deg == 90 || deg == 270;
-  final effectiveCropW = isRotated90 ? rawCropH : rawCropW;
-  final effectiveCropH = isRotated90 ? rawCropW : rawCropH;
+  // 1. Convert ROI to img.Image (Optimized YUV -> RGB)
+  final image = img.Image(width: cropW, height: cropH);
+  for (var y = 0; y < cropH; y++) {
+    for (var x = 0; x < cropW; x++) {
+      final sx = cropX + x;
+      final sy = cropY + y;
 
-  final letterboxScale = min(inputWidth / effectiveCropW, inputHeight / effectiveCropH);
-  final scaledW = effectiveCropW * letterboxScale;
-  final scaledH = effectiveCropH * letterboxScale;
-  final padX = (inputWidth - scaledW) / 2.0;
-  final padY = (inputHeight - scaledH) / 2.0;
+      final yp = yBytes[sy * yBytesPerRow + sx];
+      final uvIndex = (sy ~/ 2) * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
+      final up = uBytes[uvIndex];
+      final vp = vBytes[(sy ~/ 2) * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel];
 
-  bool isInsideLetterbox(double x, double y) {
-    return x >= padX && x < (padX + scaledW) && y >= padY && y < (padY + scaledH);
+      final c = max(0, yp - 16);
+      final d = up - 128;
+      final e = vp - 128;
+
+      final r = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255);
+      final g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
+      final b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
+
+      image.setPixelRgb(x, y, r, g, b);
+    }
   }
 
-  (double, double) modelToCrop(double x, double y) {
-    final cropX = (x - padX) / letterboxScale;
-    final cropY = (y - padY) / letterboxScale;
-    return (cropX, cropY);
+  // 2. Rotate using library
+  var processed = image;
+  if (rotationDegrees != 0) {
+    processed = img.copyRotate(image, angle: rotationDegrees);
   }
 
+  // 3. Resize with Letterboxing using library
+  final resized = img.copyResize(
+    processed,
+    width: inputWidth,
+    height: inputHeight,
+    maintainAspect: true,
+    backgroundColor: img.ColorRgb8(0, 0, 0),
+  );
+
+  // 4. Fill Tensor Buffer
+  final inputSize = inputWidth * inputHeight * 3;
   if (inputType == TensorType.uint8 || inputType == TensorType.int8) {
-    final inputSize = inputWidth * inputHeight * 3;
     if (inputType == TensorType.uint8) {
       final flat = Uint8List(inputSize);
       var cursor = 0;
-      for (var y = 0; y < inputHeight; y++) {
-        for (var x = 0; x < inputWidth; x++) {
-          final sampleX = x + 0.5;
-          final sampleY = y + 0.5;
-          if (!isInsideLetterbox(sampleX, sampleY)) {
-            final q = ((0.0 / 255.0) / inputScale + inputZeroPoint)
-                .round()
-                .clamp(0, 255);
-            flat[cursor++] = q;
-            flat[cursor++] = q;
-            flat[cursor++] = q;
-            continue;
-          }
-
-          final mapped = modelToCrop(sampleX, sampleY);
-          final rgb = _sampleRgbFromYuv(
-            xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
-            yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
-            cropX: cropX,
-            cropY: cropY,
-            cropW: rawCropW,
-            cropH: rawCropH,
-            rotationDegrees: rotationDegrees,
-            yBytes: yBytes,
-            uBytes: uBytes,
-            vBytes: vBytes,
-            yBytesPerRow: yBytesPerRow,
-            uBytesPerRow: uBytesPerRow,
-            uBytesPerPixel: uBytesPerPixel,
-            vBytesPerRow: vBytesPerRow,
-            vBytesPerPixel: vBytesPerPixel,
-          );
-          flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
-              .round()
-              .clamp(0, 255);
-          flat[cursor++] = ((rgb[1] / 255.0) / inputScale + inputZeroPoint)
-              .round()
-              .clamp(0, 255);
-          flat[cursor++] = ((rgb[2] / 255.0) / inputScale + inputZeroPoint)
-              .round()
-              .clamp(0, 255);
-        }
+      for (final pixel in resized) {
+        flat[cursor++] = ((pixel.r / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+        flat[cursor++] = ((pixel.g / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+        flat[cursor++] = ((pixel.b / 255.0) / inputScale + inputZeroPoint).round().clamp(0, 255);
+      }
+      return flat;
+    } else {
+      final flat = Int8List(inputSize);
+      var cursor = 0;
+      for (final pixel in resized) {
+        flat[cursor++] = ((pixel.r / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+        flat[cursor++] = ((pixel.g / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
+        flat[cursor++] = ((pixel.b / 255.0) / inputScale + inputZeroPoint).round().clamp(-128, 127);
       }
       return flat;
     }
-
-    final flat = Int8List(inputSize);
+  } else {
+    // float16 or float32 models use Float32List
+    final flat = Float32List(inputSize);
     var cursor = 0;
-    for (var y = 0; y < inputHeight; y++) {
-      for (var x = 0; x < inputWidth; x++) {
-        final sampleX = x + 0.5;
-        final sampleY = y + 0.5;
-        if (!isInsideLetterbox(sampleX, sampleY)) {
-          final q = ((0.0 / 255.0) / inputScale + inputZeroPoint)
-              .round()
-              .clamp(-128, 127);
-          flat[cursor++] = q;
-          flat[cursor++] = q;
-          flat[cursor++] = q;
-          continue;
-        }
-
-        final mapped = modelToCrop(sampleX, sampleY);
-        final rgb = _sampleRgbFromYuv(
-          xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
-          yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
-          cropX: cropX,
-          cropY: cropY,
-          cropW: rawCropW,
-          cropH: rawCropH,
-          rotationDegrees: rotationDegrees,
-          yBytes: yBytes,
-          uBytes: uBytes,
-          vBytes: vBytes,
-          yBytesPerRow: yBytesPerRow,
-          uBytesPerRow: uBytesPerRow,
-          uBytesPerPixel: uBytesPerPixel,
-          vBytesPerRow: vBytesPerRow,
-          vBytesPerPixel: vBytesPerPixel,
-        );
-        flat[cursor++] = ((rgb[0] / 255.0) / inputScale + inputZeroPoint)
-            .round()
-            .clamp(-128, 127);
-        flat[cursor++] = ((rgb[1] / 255.0) / inputScale + inputZeroPoint)
-            .round()
-            .clamp(-128, 127);
-        flat[cursor++] = ((rgb[2] / 255.0) / inputScale + inputZeroPoint)
-            .round()
-            .clamp(-128, 127);
-      }
+    for (final pixel in resized) {
+      flat[cursor++] = pixel.r / 255.0;
+      flat[cursor++] = pixel.g / 255.0;
+      flat[cursor++] = pixel.b / 255.0;
     }
     return flat;
   }
-
-  final flat = Float32List(inputWidth * inputHeight * 3);
-  var cursor = 0;
-  for (var y = 0; y < inputHeight; y++) {
-    for (var x = 0; x < inputWidth; x++) {
-      final sampleX = x + 0.5;
-      final sampleY = y + 0.5;
-      if (!isInsideLetterbox(sampleX, sampleY)) {
-        flat[cursor++] = 0;
-        flat[cursor++] = 0;
-        flat[cursor++] = 0;
-        continue;
-      }
-
-      final mapped = modelToCrop(sampleX, sampleY);
-      final rgb = _sampleRgbFromYuv(
-        xNorm: (mapped.$1 / effectiveCropW).clamp(0.0, 1.0),
-        yNorm: (mapped.$2 / effectiveCropH).clamp(0.0, 1.0),
-        cropX: cropX,
-        cropY: cropY,
-        cropW: rawCropW,
-        cropH: rawCropH,
-        rotationDegrees: rotationDegrees,
-        yBytes: yBytes,
-        uBytes: uBytes,
-        vBytes: vBytes,
-        yBytesPerRow: yBytesPerRow,
-        uBytesPerRow: uBytesPerRow,
-        uBytesPerPixel: uBytesPerPixel,
-        vBytesPerRow: vBytesPerRow,
-        vBytesPerPixel: vBytesPerPixel,
-      );
-      flat[cursor++] = rgb[0] / 255.0;
-      flat[cursor++] = rgb[1] / 255.0;
-      flat[cursor++] = rgb[2] / 255.0;
-    }
-  }
-  return flat;
 }
 
-List<int> _sampleRgbFromYuv({
-  required double xNorm,
-  required double yNorm,
-  required int cropX,
-  required int cropY,
-  required int cropW,
-  required int cropH,
-  required int rotationDegrees,
-  required Uint8List yBytes,
-  required Uint8List uBytes,
-  required Uint8List vBytes,
-  required int yBytesPerRow,
-  required int uBytesPerRow,
-  required int uBytesPerPixel,
-  required int vBytesPerRow,
-  required int vBytesPerPixel,
-}) {
-  final deg = ((rotationDegrees % 360) + 360) % 360;
 
-  late final double srcXNorm;
-  late final double srcYNorm;
-  switch (deg) {
-    case 90:
-      srcXNorm = 1.0 - yNorm;
-      srcYNorm = xNorm;
-      break;
-    case 180:
-      srcXNorm = 1.0 - xNorm;
-      srcYNorm = 1.0 - yNorm;
-      break;
-    case 270:
-      srcXNorm = yNorm;
-      srcYNorm = 1.0 - xNorm;
-      break;
-    default:
-      srcXNorm = xNorm;
-      srcYNorm = yNorm;
-  }
 
-  final sx = cropX + (srcXNorm * (cropW - 1)).round();
-  final sy = cropY + (srcYNorm * (cropH - 1)).round();
 
-  final yIndex = sy * yBytesPerRow + sx;
-  final uIndex = (sy ~/ 2) * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
-  final vIndex = (sy ~/ 2) * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel;
-
-  final yp = yBytes[yIndex];
-  final up = uBytes[uIndex];
-  final vp = vBytes[vIndex];
-
-  final c = max(0, yp - 16);
-  final d = up - 128;
-  final e = vp - 128;
-
-  final r = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255);
-  final g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
-  final b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
-
-  return [r, g, b];
-}
