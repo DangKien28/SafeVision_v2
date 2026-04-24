@@ -77,7 +77,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
           isFrontCamera:
               _visionRepository.currentLensDirection ==
               CameraLensDirection.front,
-          clearError: true, // FIX: explicit clear on success
+          clearError: true,
         ),
       );
       await _speakMessageUseCase(
@@ -115,10 +115,10 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         confidenceThreshold: _confidenceThreshold,
       );
 
-      if (rawDetections.isEmpty) {
-        _objectTracker.reset();
-      }
-
+      // Do NOT reset the tracker on empty frames. The tracker's maxMissedFrames
+      // mechanism evicts stale tracks naturally after consecutive misses.
+      // Resetting here breaks tracking ID continuity across momentary detection
+      // gaps and defeats AudioManager's per-track cooldown logic, causing TTS spam.
       final trackedDetections = _objectTracker.process(rawDetections);
       final detections = SafeVisionPolicy.filterDetectionsForMode(
         state.mode,
@@ -137,7 +137,7 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
           rawDetections: rawDetections,
           detections: detections,
           statusText: '$status | $fpsText',
-          clearError: true, // FIX: clear transient frame errors on success
+          clearError: true,
         ),
       );
 

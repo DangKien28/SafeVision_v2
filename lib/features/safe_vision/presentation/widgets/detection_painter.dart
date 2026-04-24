@@ -44,15 +44,20 @@ class DetectionPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: size.width * 0.8);
 
-      final bgRect = Rect.fromLTWH(
-        rect.left,
-        max(0, rect.top - 22),
-        textPainter.width + 10,
-        20,
-      );
-      canvas.drawRect(bgRect, Paint()..color = const Color(0xCC102219));
-      textPainter.paint(canvas, Offset(bgRect.left + 5, bgRect.top + 2));
-      textPainter.dispose(); // FIX: release native Paragraph resource after use
+      // Guard dispose in finally so the native Paragraph is always released,
+      // even if a draw call below throws an exception.
+      try {
+        final bgRect = Rect.fromLTWH(
+          rect.left,
+          max(0, rect.top - 22),
+          textPainter.width + 10,
+          20,
+        );
+        canvas.drawRect(bgRect, Paint()..color = const Color(0xCC102219));
+        textPainter.paint(canvas, Offset(bgRect.left + 5, bgRect.top + 2));
+      } finally {
+        textPainter.dispose();
+      }
     }
   }
 
