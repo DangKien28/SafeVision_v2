@@ -22,4 +22,7 @@ class SpeechRepositoryImpl implements SpeechRepository {
 
   @override
   Future<void> dispose() => _ttsDataSource.dispose();
+
+  @override
+  Future<void> setVolume(double volume) => _ttsDataSource.setVolume(volume);
 }

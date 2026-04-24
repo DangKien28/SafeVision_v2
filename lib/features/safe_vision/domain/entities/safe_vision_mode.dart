@@ -1,1 +1,1 @@
-enum SafeVisionMode { outdoor, indoor }
+enum SafeVisionMode { outdoor, indoor, tutorial }

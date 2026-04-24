@@ -58,15 +58,15 @@ class _SafeVisionAppState extends State<SafeVisionApp> {
   Widget build(BuildContext context) {
     final theme = ThemeData(
       useMaterial3: true,
-      colorScheme: const ColorScheme.light(
-        primary: Color(0xFFFFE400),
-        secondary: Color(0xFF00E5FF),
-        surface: Color(0xFF000000),
+      colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF00FFB3),
+        secondary: Color(0xFF00FFB3),
+        surface: Color(0xFF102019),
       ),
-      scaffoldBackgroundColor: const Color(0xFF000000),
+      scaffoldBackgroundColor: const Color(0xFF0A120E),
       textTheme: const TextTheme(
         headlineMedium: TextStyle(
-          color: Color(0xFFFFE400),
+          color: Color(0xFF00FFB3),
           fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
         ),

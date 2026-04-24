@@ -7,15 +7,11 @@ class LoadingPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0A1512), Color(0xFF193227), Color(0xFF0E4532)],
-        ),
+        color: Color(0xFF0A120E),
       ),
       child: const Center(
         child: CircularProgressIndicator(
-          color: Color(0xFFE8D98B),
+          color: Color(0xFF00FFB3),
           strokeWidth: 5,
         ),
       ),

@@ -13,6 +13,8 @@ class SafeVisionState {
     required this.detections,
     required this.cameraController,
     required this.errorMessage,
+    required this.volume,
+    required this.zoomLevel,
   });
 
   factory SafeVisionState.initial() {
@@ -25,6 +27,8 @@ class SafeVisionState {
       detections: <Detection>[],
       cameraController: null,
       errorMessage: null,
+      volume: 1.0,
+      zoomLevel: 1.0,
     );
   }
 
@@ -36,6 +40,8 @@ class SafeVisionState {
   final List<Detection> detections;
   final CameraController? cameraController;
   final String? errorMessage;
+  final double volume;
+  final double zoomLevel;
 
   /// Pass [clearError] = true to explicitly clear an existing error.
   /// Omitting [errorMessage] now preserves the existing value, unlike before.
@@ -48,6 +54,8 @@ class SafeVisionState {
     List<Detection>? detections,
     CameraController? cameraController,
     String? errorMessage,
+    double? volume,
+    double? zoomLevel,
     bool clearError = false,
   }) {
     return SafeVisionState(
@@ -58,8 +66,9 @@ class SafeVisionState {
       rawDetections: rawDetections ?? this.rawDetections,
       detections: detections ?? this.detections,
       cameraController: cameraController ?? this.cameraController,
-      // FIX: preserve existing error unless a new one is supplied or clearError is true
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      volume: volume ?? this.volume,
+      zoomLevel: zoomLevel ?? this.zoomLevel,
     );
   }
 }

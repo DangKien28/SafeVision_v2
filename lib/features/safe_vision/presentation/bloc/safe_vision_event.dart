@@ -31,3 +31,13 @@ class SafeVisionModeSwiped extends SafeVisionEvent {
 class CameraLensToggled extends SafeVisionEvent {
   const CameraLensToggled();
 }
+
+class SafeVisionVolumeChanged extends SafeVisionEvent {
+  const SafeVisionVolumeChanged(this.volume);
+  final double volume;
+}
+
+class SafeVisionZoomChanged extends SafeVisionEvent {
+  const SafeVisionZoomChanged(this.zoom);
+  final double zoom;
+}

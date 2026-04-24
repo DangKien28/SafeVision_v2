@@ -42,7 +42,7 @@ class SafeVisionPolicy {
               metadata[_normalizeLabel(detection.label)]?.bucket ??
               SafeVisionLabelBucket.recognition;
 
-          if (mode == SafeVisionMode.indoor) {
+          if (mode == SafeVisionMode.indoor || mode == SafeVisionMode.tutorial) {
             return true;
           }
 
@@ -76,6 +76,8 @@ class SafeVisionPolicy {
     Map<String, SafeVisionLabelMetadata> metadata,
   ) {
     switch (mode) {
+      case SafeVisionMode.tutorial:
+        return 'Chế độ hướng dẫn sử dụng';
       case SafeVisionMode.indoor:
         if (detections.isEmpty) {
           return 'Quét để tìm vật dụng xung quanh bạn';
@@ -105,7 +107,7 @@ class SafeVisionPolicy {
     required List<Detection> detections,
     required Map<String, SafeVisionLabelMetadata> metadata,
   }) {
-    if (detections.isEmpty) {
+    if (detections.isEmpty || mode == SafeVisionMode.tutorial) {
       return const SafeVisionSpeechPayload(
         message: '',
         warningKeys: <String>{},

@@ -1185,44 +1185,50 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
   final cropW = ((roiRight - roiLeft) * width).floor().clamp(1, width - cropX);
   final cropH = ((roiBottom - roiTop) * height).floor().clamp(1, height - cropY);
 
-  // 1. Convert ROI to img.Image (Optimized YUV -> RGB)
-  final image = img.Image(width: cropW, height: cropH);
-  for (var y = 0; y < cropH; y++) {
-    for (var x = 0; x < cropW; x++) {
-      final sx = cropX + x;
-      final sy = cropY + y;
+  // 1. Create target image directly (Optimized Direct Sampling)
+  final resized = img.Image(width: inputWidth, height: inputHeight);
+  
+  // Calculate sampling factors
+  final double scaleX = cropW / inputWidth;
+  final double scaleY = cropH / inputHeight;
+  
+  // Pre-calculate rotation constants if needed
+  // For simplicity, we assume the rotation was already handled by the camera stream 
+  // or we can handle it here by adjusting the sampling coordinates.
+  // Given the current structure, we'll keep the logic of sampling from the cropped ROI.
 
-      final yp = yBytes[sy * yBytesPerRow + sx];
-      final uvIndex = (sy ~/ 2) * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
-      final up = uBytes[uvIndex];
-      final vp = vBytes[(sy ~/ 2) * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel];
+  for (var y = 0; y < inputHeight; y++) {
+    final int syBase = (cropY + (y * scaleY).toInt()) * yBytesPerRow;
+    final int uvYBase = ((cropY + (y * scaleY).toInt()) ~/ 2);
+    
+    for (var x = 0; x < inputWidth; x++) {
+      final int sx = cropX + (x * scaleX).toInt();
+      
+      final int yp = yBytes[syBase + sx];
+      final int uvIndexU = uvYBase * uBytesPerRow + (sx ~/ 2) * uBytesPerPixel;
+      final int uvIndexV = uvYBase * vBytesPerRow + (sx ~/ 2) * vBytesPerPixel;
+      
+      final int up = uBytes[uvIndexU];
+      final int vp = vBytes[uvIndexV];
 
-      final c = max(0, yp - 16);
-      final d = up - 128;
-      final e = vp - 128;
+      // Optimized YUV to RGB (Integer bit-shifting)
+      final int c = yp - 16;
+      final int d = up - 128;
+      final int e = vp - 128;
 
-      final r = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255);
-      final g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
-      final b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
+      final int r = ((298 * c + 409 * e + 128) >> 8).clamp(0, 255);
+      final int g = ((298 * c - 100 * d - 208 * e + 128) >> 8).clamp(0, 255);
+      final int b = ((298 * c + 516 * d + 128) >> 8).clamp(0, 255);
 
-      image.setPixelRgb(x, y, r, g, b);
+      resized.setPixelRgb(x, y, r, g, b);
     }
   }
 
-  // 2. Rotate using library
-  var processed = image;
+  // 2. Handle rotation if needed (retaining library usage as requested)
+  var finalImage = resized;
   if (rotationDegrees != 0) {
-    processed = img.copyRotate(image, angle: rotationDegrees);
+    finalImage = img.copyRotate(resized, angle: rotationDegrees);
   }
-
-  // 3. Resize with Letterboxing using library
-  final resized = img.copyResize(
-    processed,
-    width: inputWidth,
-    height: inputHeight,
-    maintainAspect: true,
-    backgroundColor: img.ColorRgb8(0, 0, 0),
-  );
 
   // 4. Fill Tensor Buffer
   final inputSize = inputWidth * inputHeight * 3;
@@ -1250,7 +1256,7 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
     // float16 or float32 models use Float32List
     final flat = Float32List(inputSize);
     var cursor = 0;
-    for (final pixel in resized) {
+    for (final pixel in finalImage) {
       flat[cursor++] = pixel.r / 255.0;
       flat[cursor++] = pixel.g / 255.0;
       flat[cursor++] = pixel.b / 255.0;
@@ -1258,7 +1264,3 @@ dynamic _buildModelInputFromYuv(Map<String, Object> payload) {
     return flat;
   }
 }
-
-
-
-

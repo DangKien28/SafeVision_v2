@@ -18,8 +18,9 @@ class BottomActionBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 16),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xCC1A2621),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xCC0A120E),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white10),
       ),
       child: Row(
         children: SafeVisionMode.values
@@ -32,20 +33,25 @@ class BottomActionBar extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       backgroundColor: m == mode
-                          ? const Color(0xFFE8D98B)
-                          : const Color(0xFF2C3D35),
+                          ? const Color(0xFF00FFB3)
+                          : const Color(0xFF1A2621),
                       foregroundColor: m == mode
-                          ? const Color(0xFF102019)
-                          : Colors.white,
+                          ? Colors.black
+                          : Colors.white70,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                     child: Text(
                       switch (m) {
                         SafeVisionMode.outdoor => 'Ngoài trời',
                         SafeVisionMode.indoor => 'Trong nhà',
+                        SafeVisionMode.tutorial => 'Hướng dẫn',
                       },
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),

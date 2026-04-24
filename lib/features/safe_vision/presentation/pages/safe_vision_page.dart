@@ -28,113 +28,188 @@ class _SafeVisionPageState extends State<SafeVisionPage> {
     context.read<SafeVisionBloc>().add(const SafeVisionStarted());
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            if (velocity.abs() < _swipeThreshold) {
-              return;
-            }
-            context.read<SafeVisionBloc>().add(
-              SafeVisionModeSwiped(toNext: velocity < 0),
-            );
-          },
-          child: Stack(
-            children: [
-              const Positioned.fill(child: _CameraStage()),
-              Positioned(
-                top: 12,
-                left: 12,
-                right: 110,
-                child: const _StatusLayer(),
-              ),
-              Positioned(
-                top: 16,
-                right: 16,
-                child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  buildWhen: (previous, current) =>
-                      previous.isInitializing != current.isInitializing ||
-                      previous.isFrontCamera != current.isFrontCamera,
-                  builder: (context, state) {
-                    return Semantics(
-                      label: 'Đổi camera trước hoặc sau',
-                      button: true,
-                      child: SizedBox(
-                        width: 86,
-                        height: 86,
-                        child: FilledButton(
-                          onPressed: state.isInitializing
-                              ? null
-                              : () {
-                                  context.read<SafeVisionBloc>().add(
-                                    const CameraLensToggled(),
-                                  );
-                                },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFFFE400),
-                            foregroundColor: Colors.black,
-                            disabledBackgroundColor: const Color(0xFFA39A3B),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              side: const BorderSide(
-                                color: Colors.black,
-                                width: 3,
-                              ),
-                            ),
-                            elevation: 10,
-                            shadowColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.cameraswitch, size: 34),
-                              Text(
-                                state.isFrontCamera ? 'TRƯỚC' : 'SAU',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+  void _showSettings(BuildContext context) {
+    final bloc = context.read<SafeVisionBloc>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF102019),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return BlocProvider.value(
+          value: bloc,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CÀI ĐẶT',
+                  style: TextStyle(
+                    color: Color(0xFF00FFB3),
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
-                  buildWhen: (previous, current) =>
-                      previous.mode != current.mode,
+                const SizedBox(height: 32),
+                const Text(
+                  'Âm lượng hướng dẫn',
+                  style: TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                BlocBuilder<SafeVisionBloc, SafeVisionState>(
                   builder: (context, state) {
-                    return BottomActionBar(
-                      mode: state.mode,
-                      onModeChanged: (mode) {
+                    return Slider(
+                      value: state.volume,
+                      activeColor: const Color(0xFF00FFB3),
+                      onChanged: (v) {
                         context.read<SafeVisionBloc>().add(
-                          SafeVisionModeChanged(mode),
+                          SafeVisionVolumeChanged(v),
                         );
                       },
                     );
                   },
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                const Text(
+                  'Độ phóng đại (Zoom)',
+                  style: TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                BlocBuilder<SafeVisionBloc, SafeVisionState>(
+                  builder: (context, state) {
+                    return Slider(
+                      value: state.zoomLevel,
+                      min: 1.0,
+                      max: 5.0,
+                      activeColor: const Color(0xFF00FFB3),
+                      onChanged: (v) {
+                        context.read<SafeVisionBloc>().add(
+                          SafeVisionZoomChanged(v),
+                        );
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity.abs() < _swipeThreshold) {
+            return;
+          }
+          context.read<SafeVisionBloc>().add(
+            SafeVisionModeSwiped(toNext: velocity < 0),
+          );
+        },
+        child: Stack(
+          children: [
+            const Positioned.fill(child: _CameraStage()),
+            Positioned(
+              top: 120,
+              left: 12,
+              right: 12,
+              child: const _StatusLayer(),
+            ),
+            // Top Controls
+            Positioned(
+              top: 16,
+              left: 16,
+              right: 16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _RoundButton(
+                    icon: Icons.cameraswitch,
+                    label: 'ĐỔI CAMERA',
+                    onPressed: () {
+                      context.read<SafeVisionBloc>().add(
+                        const CameraLensToggled(),
+                      );
+                    },
+                  ),
+                  _RoundButton(
+                    icon: Icons.settings,
+                    label: 'CÀI ĐẶT',
+                    onPressed: () => _showSettings(context),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: BlocBuilder<SafeVisionBloc, SafeVisionState>(
+                buildWhen: (previous, current) => previous.mode != current.mode,
+                builder: (context, state) {
+                  return BottomActionBar(
+                    mode: state.mode,
+                    onModeChanged: (mode) {
+                      context.read<SafeVisionBloc>().add(
+                        SafeVisionModeChanged(mode),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 64,
+          height: 64,
+          child: IconButton.filled(
+            onPressed: onPressed,
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFF00FFB3),
+              foregroundColor: Colors.black,
+            ),
+            icon: Icon(icon, size: 28),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -162,27 +237,27 @@ class _CameraStage extends StatelessWidget {
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final previewAspectRatio = 1 / controller.value.aspectRatio;
-            final viewportWidth = constraints.maxWidth;
-            final viewportHeight = viewportWidth / previewAspectRatio;
-
-            return Center(
-              child: SizedBox(
-                width: viewportWidth,
-                height: viewportHeight,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: RepaintBoundary(child: CameraPreview(controller)),
+            // FIX: Use FittedBox with BoxFit.cover to maintain aspect ratio without stretching
+            // This behavior is similar to native camera app.
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      width: controller.value.previewSize?.height ?? 1,
+                      height: controller.value.previewSize?.width ?? 1,
+                      child: CameraPreview(controller),
                     ),
-                    const Positioned.fill(
-                      child: IgnorePointer(
-                        child: RepaintBoundary(child: _DetectionOverlay()),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: RepaintBoundary(child: _DetectionOverlay()),
+                  ),
+                ),
+              ],
             );
           },
         );

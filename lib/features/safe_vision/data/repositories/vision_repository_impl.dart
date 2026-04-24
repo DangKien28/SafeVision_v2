@@ -69,4 +69,9 @@ class VisionRepositoryImpl implements VisionRepository {
     await _cameraDataSource.dispose();
     _detectorDataSource.dispose();
   }
+
+  @override
+  Future<void> setZoom(double level) async {
+    await _cameraDataSource.setZoomLevel(level);
+  }
 }

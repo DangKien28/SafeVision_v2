@@ -9,4 +9,5 @@ abstract class VisionRepository {
   Future<void> startImageStream(void Function(CameraImage image) onImage);
   Future<List<Detection>> detect(CameraImage image, {double confidenceThreshold = 0.40});
   Future<void> dispose();
+  Future<void> setZoom(double level);
 }

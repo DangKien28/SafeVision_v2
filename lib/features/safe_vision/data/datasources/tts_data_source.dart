@@ -47,6 +47,10 @@ class TtsDataSource {
     }
   }
 
+  Future<void> setVolume(double volume) async {
+    await _tts.setVolume(volume.clamp(0.0, 1.0));
+  }
+
   Future<void> stop() async {
     _isSpeaking = false;
     await _tts.stop();

@@ -38,6 +38,8 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
     on<SafeVisionModeChanged>(_onModeChanged);
     on<SafeVisionModeSwiped>(_onModeSwiped);
     on<CameraLensToggled>(_onCameraLensToggled);
+    on<SafeVisionVolumeChanged>(_onVolumeChanged);
+    on<SafeVisionZoomChanged>(_onZoomChanged);
   }
 
   final InitializeVisionUseCase _initializeVisionUseCase;
@@ -67,7 +69,16 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       await _speakMessageUseCase.configure();
       final controller = await _initializeVisionUseCase();
 
-      await _visionRepository.startImageStream(_enqueueFrame);
+      // Small delay to ensure hardware is fully ready after initialization
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      try {
+        await _visionRepository.startImageStream(_enqueueFrame);
+      } catch (e) {
+        debugPrint('SafeVision: Initial startImageStream failed, retrying once...');
+        await Future.delayed(const Duration(seconds: 1));
+        await _visionRepository.startImageStream(_enqueueFrame);
+      }
 
       emit(
         state.copyWith(
@@ -193,6 +204,17 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         await _speakMessageUseCase('Chế độ di chuyển ngoài trời.');
       case SafeVisionMode.indoor:
         await _speakMessageUseCase('Chế độ tìm vật trong nhà.');
+      case SafeVisionMode.tutorial:
+        await _speakMessageUseCase(
+          'Chào mừng bạn đến với Safe Vision. '
+          'Ứng dụng hỗ trợ nhận diện vật thể xung quanh. '
+          'Bạn có thể vuốt sang trái hoặc phải để chuyển đổi giữa các chế độ: '
+          'Ngoài trời để cảnh báo nguy hiểm, '
+          'Trong nhà để tìm kiếm vật dụng cá nhân, '
+          'và Hướng dẫn để nghe lại thông báo này. '
+          'Nhấn vào nút trên cùng bên trái để đổi camera, '
+          'và nút bên phải để vào phần cài đặt âm lượng và độ phóng đại.',
+        );
     }
   }
 
@@ -219,6 +241,8 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
       _objectTracker.reset();
 
       final controller = await _visionRepository.switchCamera();
+      
+      await Future.delayed(const Duration(milliseconds: 500));
       await _visionRepository.startImageStream(_enqueueFrame);
 
       final isFront =
@@ -247,6 +271,22 @@ class SafeVisionBloc extends Bloc<SafeVisionEvent, SafeVisionState> {
         ),
       );
     }
+  }
+
+  Future<void> _onVolumeChanged(
+    SafeVisionVolumeChanged event,
+    Emitter<SafeVisionState> emit,
+  ) async {
+    await _speechRepository.setVolume(event.volume);
+    emit(state.copyWith(volume: event.volume));
+  }
+
+  Future<void> _onZoomChanged(
+    SafeVisionZoomChanged event,
+    Emitter<SafeVisionState> emit,
+  ) async {
+    await _visionRepository.setZoom(event.zoom);
+    emit(state.copyWith(zoomLevel: event.zoom));
   }
 
   void _enqueueFrame(CameraImage image) {

@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show DeviceOrientation;
 
 class CameraDataSource {
@@ -71,6 +72,19 @@ class CameraDataSource {
     }
     await controller.dispose();
     _controller = null;
+  }
+
+  Future<void> setZoomLevel(double zoom) async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final minZoom = await controller.getMinZoomLevel();
+      final maxZoom = await controller.getMaxZoomLevel();
+      final target = zoom.clamp(minZoom, maxZoom);
+      await controller.setZoomLevel(target);
+    } catch (e) {
+      debugPrint('Camera zoom error: $e');
+    }
   }
 
   Future<void> dispose() async {
